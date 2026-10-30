@@ -1,0 +1,10 @@
+dist/
+node_modules/
+*.wgsl
+*.obj
+*.mtl
+*.gltf
+*.glb
+*.exr
+*.png
+*.jpg

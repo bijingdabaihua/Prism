@@ -1,0 +1,560 @@
+@charset "UTF-8";
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #121214;
+  font-family:
+    'SF Pro Display',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+canvas:active {
+  cursor: grabbing !important;
+}
+
+#loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #121214;
+  transition:
+    opacity 0.5s ease,
+    visibility 0.5s ease;
+}
+
+#loading-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#loading-overlay .spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(100, 200, 255, 0.6);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+#loading-overlay .spinner.hidden {
+  display: none;
+}
+
+#loading-overlay .msg {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.5px;
+  text-align: center;
+  max-width: 320px;
+}
+
+#loading-overlay.error .msg {
+  color: rgba(255, 120, 120, 0.7);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   画廊
+   -------------------------------------------------------------------------- */
+
+.gallery {
+  height: 100%;
+  overflow-y: auto;
+  padding: 56px clamp(20px, 6vw, 80px) 64px;
+}
+
+.gallery-head {
+  max-width: 1120px;
+  margin: 0 auto 40px;
+}
+
+.gallery-head h1 {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, #ffffff 0%, #8fd0ff 60%, #b39dff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.gallery-head p {
+  margin-top: 10px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.02em;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 0.25s ease,
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(120, 200, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.card-cover {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background:
+    radial-gradient(120% 90% at 20% 10%, hsl(var(--tint) 70% 45% / 0.5), transparent 60%),
+    radial-gradient(100% 80% at 80% 90%, hsl(calc(var(--tint) + 60) 70% 40% / 0.4), transparent 55%),
+    #17171b;
+}
+
+.card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.card-badge {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+.card-body {
+  padding: 16px 18px 20px;
+}
+
+.card-body h3 {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.card-body p {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+  list-style: none;
+}
+
+.tags li {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: rgba(140, 210, 255, 0.85);
+  background: rgba(100, 200, 255, 0.08);
+}
+
+.gallery-notice {
+  max-width: 1120px;
+  margin: 0 auto 32px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 200, 120, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 190, 100, 0.06);
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 214, 160, 0.8);
+}
+
+.gallery-foot {
+  max-width: 1120px;
+  margin: 40px auto 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.25);
+  letter-spacing: 0.03em;
+}
+
+/* --------------------------------------------------------------------------
+   降级页 —— 浏览器没有 WebGPU
+   -------------------------------------------------------------------------- */
+
+.unsupported {
+  height: 100%;
+  overflow-y: auto;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 40px clamp(20px, 5vw, 48px) 64px;
+}
+
+.unsupported-head h1 {
+  margin-top: 16px;
+  font-size: clamp(24px, 3.4vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.unsupported-head p {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.unsupported-figure {
+  margin: 28px 0;
+}
+
+.unsupported-figure img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+}
+
+.unsupported-figure figcaption {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.unsupported-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.unsupported-table th,
+.unsupported-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: left;
+  font-weight: 400;
+}
+
+.unsupported-table th {
+  width: 34%;
+  color: rgba(160, 220, 255, 0.85);
+}
+
+.unsupported-table td {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.unsupported-note {
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* --------------------------------------------------------------------------
+   渲染页
+   -------------------------------------------------------------------------- */
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.stage-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 8px);
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
+}
+
+.stage-hint.shown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.hud {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.stage-back {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  color: rgba(160, 220, 255, 0.75);
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.stage-back:hover {
+  color: rgba(200, 235, 255, 0.95);
+}
+
+.unsupported-back {
+  display: inline-block;
+  margin-bottom: 24px;
+  color: rgba(160, 220, 255, 0.7);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   导出面板
+   -------------------------------------------------------------------------- */
+
+.stage-export {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.export-toggle {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  color: rgba(160, 220, 255, 0.75);
+  font-size: 12px;
+  font-family: inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.export-toggle:hover,
+.export-toggle.active {
+  color: rgba(200, 235, 255, 0.95);
+  border-color: rgba(160, 220, 255, 0.45);
+}
+
+.export-panel {
+  width: 268px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 12, 16, 0.84);
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 12px;
+  color: rgba(230, 238, 245, 0.88);
+}
+
+.export-panel.hidden {
+  display: none;
+}
+
+.export-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.export-row > span:first-child {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.export-row select,
+.export-row input {
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.export-row input {
+  width: 62px;
+  text-align: right;
+}
+
+.export-row select:disabled,
+.export-row input:disabled {
+  opacity: 0.45;
+}
+
+.export-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.export-unit {
+  width: 30px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.export-summary {
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(160, 220, 255, 0.62);
+}
+
+.export-bar {
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.export-bar.hidden,
+.export-status.hidden {
+  display: none;
+}
+
+.export-bar-fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #4aa8ff, #7fe3c4);
+  transition: width 0.25s linear;
+}
+
+.export-status {
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.export-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.export-actions button {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(235, 245, 255, 0.85);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.export-start {
+  background: rgba(70, 140, 220, 0.32);
+  border-color: rgba(120, 180, 255, 0.38);
+}
+
+.export-start:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 导出时把 HUD 压暗：此刻左下角的 fps 是冻结的，不该抢注意力 */
+.stage.exporting .hud {
+  opacity: 0.25;
+}
+
+/*
+ * 导出时画布的物理像素是视频分辨率（16:9），CSS 盒子还是窗口的宽高比，
+ * 不换算就会被拉伸。contain 让它按比例缩进盒子里，四周留黑 ——
+ * 看到的这张就是正在编码的那一帧，只是不铺满。
+ */
+.stage.exporting canvas {
+  object-fit: contain;
+}

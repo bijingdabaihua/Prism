@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.local
+.vite/
+*.tsbuildinfo
+
+# Architecture analysis reports
+arch-report-*.md
+plan.md
+
+# 本地的开发笔记，不进公开仓库
+CLAUDE.md
+
+.DS_Store
