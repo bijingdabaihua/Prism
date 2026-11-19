@@ -7,11 +7,22 @@
  * 业务层只认识这一个类，实例对外只暴露 camera / background / model
  * 三个只读句柄。
  *
- * 当前只定形状，create 是占位。确认接口之后再接 engine / config。
+ * 当前只定形状，create 只做了主线程那一眼检查，其余是占位。
+ * 确认接口之后再接 engine / config。
  */
 export class Prism {
-    /** 异步工厂：只完成 GPU 初始化；场景与环境图通过句柄的 setter 配置。 */
+    /**
+     * 异步工厂：一次调用 = 一个 Worker = 一个独立 GPUDevice。
+     *
+     * 主线程先看一眼 navigator.gpu —— 没有就连 Worker 都不起，直接拒绝。
+     * 这一眼只说明「浏览器有这个 API」，不保证真能跑：requestAdapter() 在
+     * Worker 里仍可能返回 null（驱动进黑名单、虚拟机、关了硬件加速），
+     * 那种情况同样以 PrismUnsupportedError 拒绝。
+     */
     public static async create(): Promise<Prism> {
+        if (!navigator.gpu) {
+            throw new PrismUnsupportedError('WebGPU is not available. Try Chrome 113+.');
+        }
         throw new Error('Prism.create is not implemented yet');
     }
 
@@ -22,7 +33,25 @@ export class Prism {
     /** 场景几何：已编译的模型。 */
     public declare readonly model: ModelHandle;
 
+    /**
+     * 释放这个实例的 Worker 和 GPU 设备。
+     *
+     * 实例独占一个 Worker 和一个 GPUDevice，dispose 之后所有句柄失效；
+     * 重复调用无副作用。不 dispose 就等于一直占着一个 Worker 和一份显存。
+     */
+    public dispose(): void {
+        throw new Error('Prism.dispose is not implemented yet');
+    }
+
     private constructor() {}
+}
+
+/** 这台机器跑不了 WebGPU —— 调用方据此走降级页，而不是错误态。 */
+export class PrismUnsupportedError extends Error {
+    constructor(message = 'WebGPU is not available in this browser') {
+        super(message);
+        this.name = 'PrismUnsupportedError';
+    }
 }
 
 /**

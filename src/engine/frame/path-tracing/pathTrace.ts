@@ -88,13 +88,6 @@ export class PathTracePass {
     private targetFrameMs = DEFAULT_TARGET_MS;
     /** 下一帧清空累加缓冲并从头开始采样。 */
     private resetPending = false;
-    /**
-     * 导出模式：每帧固定推进这么多像素，0 = 用自适应预算（实时）。
-     *
-     * 实时那套是「每帧塞满接近一个刷新间隔的 GPU 时间」，导出不需要跟呈现
-     * 对齐，反而需要「步数确定、提交少」：预算控制器让位，改成固定块。
-     */
-    private exportChunk = 0;
 
     /**
      * 本帧是否重开了累积（相机/场景/尺寸变化）。
@@ -144,7 +137,7 @@ export class PathTracePass {
     /**
      * 重算引导缓冲：整屏一像素一条针孔射线，写几何法线和命中距离。
      *
-     * 每次换机位跑一次（导出时每视频帧一次）。成本是「一条光线 × 像素数」，
+     * 只在机位/尺寸变化后跑一次。成本是「一条光线 × 像素数」，
      * 相对于这一帧已经打过的 spp 条路径可以忽略。
      */
     public recordGuides(encoder: GPUCommandEncoder): void {
@@ -176,8 +169,7 @@ export class PathTracePass {
      * 已完成的整轮采样数（每个像素至少采过这么多次）。
      *
      * 已经请求重置、但还没落到下一帧时算 0：那两张累积纹理马上就会被清掉，
-     * 报旧的轮数会让「采够了没有」这个判断在重置之后直接为真 —— 离线导出
-     * 循环一帧都不跑就收帧，编出来是一串空画面。
+     * 报旧的轮数等于说「这张马上要消失的画面采够了」。
      */
     public get completedSamples(): number {
         return this.resetPending ? 0 : this.sweep;
@@ -194,17 +186,6 @@ export class PathTracePass {
         // frameIndex 故意不归零：它是 LDS 的采样序号，只喂随机数、不参与累加。
         // 拖动时每帧都重置，若序号回到 1，所有像素会一直用同一组随机数 ——
         // 单样本画面会呈现一张固定的屏幕空间花纹，而不像噪点。
-    }
-
-    /**
-     * 导出模式：每帧推进固定像素数（0 关闭）。
-     *
-     * 块大 = 提交次数少。每次提交都带着一次全纹理拷贝和一次测量，导出时
-     * 这些纯属浪费；但块也不能无限大 —— 一次 dispatch 太久会把 GPU 看门狗
-     * 拖出来。
-     */
-    public setExportChunk(pixels: number): void {
-        this.exportChunk = Math.max(0, Math.floor(pixels));
     }
 
     /** 每帧 GPU 预算（毫秒）。RenderLoop 按实测刷新率下发。 */
@@ -287,10 +268,7 @@ export class PathTracePass {
         }
 
         const maxPixels = Math.max(1, Math.min(this.pixelCount, MAX_DISPATCH));
-        const n =
-            this.exportChunk > 0
-                ? Math.min(this.exportChunk, maxPixels)
-                : Math.max(1, Math.min(this.dispatchTarget, maxPixels));
+        const n = Math.max(1, Math.min(this.dispatchTarget, maxPixels));
         const writeIndex = this.accumIndex;
         const readIndex = 1 - writeIndex;
 

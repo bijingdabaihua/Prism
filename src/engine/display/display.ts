@@ -52,24 +52,6 @@ export class Display {
         this.draw(encoder, bindGroup, ctx.getCurrentTexture().createView());
     }
 
-    /**
-     * 把同一张画面画到指定纹理上 —— 导出视频用。
-     *
-     * 离屏目标可以被 copyTextureToBuffer 读回。不能直接读 canvas 的纹理：
-     * 交换链纹理不保证带 COPY_SRC，而且快照得等合成器呈现，后台标签页里
-     * 那一步根本不发生。
-     */
-    public recordTo(
-        encoder: GPUCommandEncoder,
-        view: GPUTextureView | null,
-        version: number,
-        target: GPUTextureView,
-    ): void {
-        const bindGroup = this.bindGroupFor(view, version);
-        if (!bindGroup) return;
-        this.draw(encoder, bindGroup, target);
-    }
-
     private bindGroupFor(view: GPUTextureView | null, version: number): GPUBindGroup | null {
         if (version !== this.blitVersion) {
             this.blitBindGroups.clear();

@@ -14,8 +14,6 @@ export class RenderContext {
     private ctx: GPUCanvasContext | null = null;
     private _width = 0;
     private _height = 0;
-    /** 导出期间尺寸被钉死，不再跟 CSS 走。 */
-    private forced = false;
     private resizeListeners: Array<(width: number, height: number) => void> = [];
 
     constructor(device: GPUDevice, canvas: HTMLCanvasElement) {
@@ -35,29 +33,6 @@ export class RenderContext {
         return this.canvasEl;
     }
 
-    /**
-     * 把渲染尺寸钉死在给定分辨率，不再跟 CSS 尺寸走 —— 导出视频要用它。
-     *
-     * 传 null 恢复：把当前尺寸清零，下一次 applyResizeIfNeeded() 会按 CSS 重算
-     * 并通知订阅者（累积纹理、相机宽高比都跟着重建）。
-     */
-    public forceSize(width: number | null, height = 0): void {
-        const canvas = this.canvasEl;
-        if (!canvas) return;
-        if (width === null) {
-            this.forced = false;
-            this._width = 0;
-            this._height = 0;
-            return;
-        }
-        this.forced = true;
-        this._width = width;
-        this._height = height;
-        canvas.width = width;
-        canvas.height = height;
-        for (const fn of this.resizeListeners) fn(width, height);
-    }
-
     public width(): number {
         return this._width;
     }
@@ -72,7 +47,7 @@ export class RenderContext {
      */
     public applyResizeIfNeeded(): boolean {
         const canvas = this.canvasEl;
-        if (!canvas || this.forced) return false;
+        if (!canvas) return false;
         const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
         const w = Math.round(canvas.clientWidth * dpr);
         const h = Math.round(canvas.clientHeight * dpr);

@@ -1,4 +1,4 @@
-import type { CameraPath, CameraView } from '../ir/camera';
+import type { CameraView } from '../ir/camera';
 import type { Scene } from '../ir/scene';
 import { createScene } from './scene';
 import { buildTiledGround, loadGroundMaterial, ENV_ROTATION, GROUND_TILE } from './ground';
@@ -54,22 +54,6 @@ const CAMERA: CameraView = {
 };
 
 /**
- * 演示运镜：6 秒，从稍远处缓缓推近，同时横移约 5°。
- *
- * 幅度是压着的 —— 地面只有 3×3 块，转出去或者压低视线就会露出地边。
- * 距离从 1.72 m 收到 1.56 m，视差够让罐子和枯枝分开，又不至于把构图拆散。
- * 俯角基本不动：最远那一帧（1.72 m）的上角已经贴着砖边，再把视线放平就得出画。
- */
-const CAMERA_PATH: CameraPath = {
-    duration: 6,
-    keyframes: [
-        { t: 0, target: CAMERA.target, distance: 1.72, theta: -0.035, phi: 1.121 },
-        { t: 0.5, target: CAMERA.target, distance: 1.64, theta: 0.01, phi: 1.12 },
-        { t: 1, target: CAMERA.target, distance: 1.56, theta: 0.05, phi: 1.119 },
-    ],
-};
-
-/**
  * 太阳方位。
  *
  * 三张候选环境的太阳方位角几乎一样（实测都是 φ ≈ 36.1°），差别只在高度：
@@ -115,6 +99,5 @@ export async function createVaseOnDirt(envUrl: string): Promise<Scene> {
         instances: [...ground, ...vase, ...branch],
         env: rotateEquirect(await loadImage(envUrl), SUN_ROTATION),
         camera: CAMERA,
-        cameraPath: CAMERA_PATH,
     });
 }

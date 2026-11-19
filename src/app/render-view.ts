@@ -1,7 +1,6 @@
 import { Engine } from '../engine/engine';
 import type { FrameStats } from '../engine/frame/frame';
 import type { SceneEntry } from '../config/config';
-import { ExportPanel } from './export-panel';
 
 /**
  * 渲染页外壳：画布、输入、加载状态、HUD。
@@ -14,7 +13,6 @@ export class RenderView {
     private stage: HTMLElement | null = null;
     private hud: HTMLElement | null = null;
     private loading: HTMLElement | null = null;
-    private exportPanel: ExportPanel | null = null;
     private dragging = false;
     private dragMode: '' | 'orbit' | 'pan' | 'zoom' = '';
     private pinching = false;
@@ -73,7 +71,7 @@ export class RenderView {
             const hint = document.createElement('div');
             hint.className = 'stage-hint';
             hint.textContent =
-                '实时路径追踪 · 中键旋转 · Shift+中键平移 · 滚轮缩放 · 按 D 降噪 · 按 S 保存截图 · 按 K 后台继续渲染 · 右上角导出视频';
+                '实时路径追踪 · 中键旋转 · Shift+中键平移 · 滚轮缩放 · 按 D 降噪 · 按 S 保存截图 · 按 K 后台继续渲染';
             stage.appendChild(hint);
 
             this.updateLoading('Loading scene...');
@@ -84,12 +82,6 @@ export class RenderView {
             }
             engine.setScene(scene);
             engine.loop.setOnFrame((stats) => this.renderHud(stats));
-
-            const exportPanel = new ExportPanel(engine, scene, (busy) => {
-                stage.classList.toggle('exporting', busy);
-            });
-            this.exportPanel = exportPanel;
-            stage.appendChild(exportPanel.element);
 
             this.bindInput();
             hint.classList.add('shown');
@@ -117,8 +109,6 @@ export class RenderView {
     public unmount(): void {
         this.disposed = true;
         this.stopSilentAudio();
-        this.exportPanel?.destroy();
-        this.exportPanel = null;
         if (this.engine) {
             this.engine.destroy();
             this.engine = null;

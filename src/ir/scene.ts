@@ -1,4 +1,4 @@
-import type { CameraPath, CameraView } from './camera';
+import type { CameraView } from './camera';
 import type { Image } from './image';
 import type { Instance } from './instance';
 
@@ -19,9 +19,4 @@ export interface Scene {
     env: Image;
     /** 机位。构图是场景的一部分：同一个场景换一套机位就是另一张图。 */
     camera: CameraView;
-    /**
-     * 运镜轨迹（可选）。导出视频时逐帧在这里取样；没有它就只能导出静止画面。
-     * 轨迹和机位是两件事：机位是访客看到的那一格，轨迹是「如果拍一段」。
-     */
-    cameraPath?: CameraPath;
 }

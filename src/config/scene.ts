@@ -1,4 +1,4 @@
-import type { CameraPath, CameraView } from '../ir/camera';
+import type { CameraView } from '../ir/camera';
 import type { Image } from '../ir/image';
 import type { Scene } from '../ir/scene';
 import { Instance } from '../ir/instance';
@@ -13,8 +13,6 @@ export interface SceneOptions {
     env?: Image;
     /** 省略 → 正对原点、3 m 远的默认机位。 */
     camera?: CameraView;
-    /** 省略 → 不能导出运镜视频，只能导出静止画面。 */
-    cameraPath?: CameraPath;
 }
 
 /** 默认机位：正对原点、3 m 远、0.7 rad 垂直视野 —— 够看清 1 m 的占位盒子。 */
@@ -39,7 +37,6 @@ export function createScene(options: SceneOptions = {}): Scene {
         instances: instances.length > 0 ? instances : [createPlaceholderBox()],
         env: options.env ?? createGrayEnvironment(),
         camera: options.camera ?? DEFAULT_CAMERA,
-        cameraPath: options.cameraPath,
     };
 }
 

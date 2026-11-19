@@ -57,7 +57,7 @@ const epsilon = 1e-6;
 @group(0) @binding(21) var environment_sampler: sampler;
 @group(0) @binding(13) var previous_accumulation_texture: texture_2d<f32>;
 @group(0) @binding(15) var<uniform> camera: CameraUniforms;
-// 降噪引导缓冲：xyz = 世界几何法线，w = 命中距离（天空为 0）。只有导出时用。
+// 降噪引导缓冲：xyz = 世界几何法线，w = 命中距离（天空为 0）。只有降噪打开时才写。
 @group(0) @binding(20) var guide_texture: texture_storage_2d<rgba32float, write>;
 // 环境亮度 CDF（布局见 engine/background.ts）
 @group(0) @binding(16) var<storage, read> env_distribution: array<f32>;
