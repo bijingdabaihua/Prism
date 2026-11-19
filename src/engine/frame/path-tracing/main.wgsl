@@ -206,33 +206,3 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let L = path_trace(ray, seed, &dim);
   accumulate(coordinate, L, previous_count);
 }
-
-// ---------------------------------------------------------------------------
-// 降噪引导：每个像素一条针孔射线，写几何法线和命中距离。
-//
-// 只给降噪器判断「相邻两个像素是不是同一个表面」用，所以不抖动、不开光圈、
-// 不采第二次 —— 一像素一条就够。用几何法线而不是插值法线：地面材质带法线
-// 贴图，插值法线在 4 mm 的土块上逐像素乱跳，降噪器会以为到处是边，反而
-// 把噪声原样留下来。几何法线只反映三角形朝向，平地上是连续的。
-//
-// 天空写 (0,0,0,0)：w = 0 是「无限远」的哨兵值，降噪器据此把天空和几何断开。
-// ---------------------------------------------------------------------------
-@compute @workgroup_size(8, 8)
-fn guides(@builtin(global_invocation_id) id: vec3<u32>) {
-  if (id.x >= u.resolution.x || id.y >= u.resolution.y) { return; }
-  let coord = vec2<i32>(i32(id.x), i32(id.y));
-
-  let ndc_x = (f32(id.x) + 0.5) / f32(u.resolution.x) * 2.0 - 1.0;
-  let ndc_y = (f32(id.y) + 0.5) / f32(u.resolution.y) * 2.0 - 1.0;
-  let eye = camera.camera_position.xyz;
-  let world = camera.inv_view_projection * vec4(ndc_x, -ndc_y, 1.0, 1.0);
-  let ray = Ray(eye, normalize(world.xyz / world.w - eye));
-
-  let hit = intersect_scene(ray);
-  if (hit.t <= 0.0) {
-    textureStore(guide_texture, coord, vec4(0.0));
-    return;
-  }
-  let surface = compute_surface(ray, hit);
-  textureStore(guide_texture, coord, vec4(surface.geo_normal, hit.t));
-}

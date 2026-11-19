@@ -5,7 +5,6 @@ import type { RenderContext } from '../context';
 import { GpuTimer } from './gpu-timer';
 import { PathTracePass } from './path-tracing/pathTrace';
 import { Display } from '../display/display';
-import { Denoiser } from '../denoise/denoise';
 
 /** 给 HUD / 外部观察的一帧统计。 */
 export interface FrameStats {
@@ -33,30 +32,13 @@ export class Frame {
     private readonly camera: Camera;
     private readonly pathTracePass: PathTracePass;
     private readonly display: Display;
-    private readonly denoiser: Denoiser;
     private readonly timer: GpuTimer;
-
-    /**
-     * 降噪开关：实时渲染里手动开关（按 D）。
-     *
-     * 实时累积到几千 spp 之后画面自己就干净了，再降噪只会糊掉细节；但刚拖动
-     * 完机位、只攒了几 spp 的时候，降噪能立刻把画面压干净。
-     */
-    private denoiseOn = false;
-
-    /** 打开时强制下一帧重算引导 —— 静态画面里它可能一次都还没算过。 */
-    public setDenoise(on: boolean): void {
-        if (on === this.denoiseOn) return;
-        this.denoiseOn = on;
-        if (on) this.pathTracePass.invalidateGuides();
-    }
 
     constructor(context: RenderContext, model: Model, camera: Camera, background: Background) {
         this.context = context;
         this.camera = camera;
         this.pathTracePass = new PathTracePass(context, model, camera.buffer, background);
         this.display = new Display(context);
-        this.denoiser = new Denoiser(context);
         this.timer = new GpuTimer(context.device);
         this.timer.onMeasure = (samplingMs, _totalMs, dispatch) =>
             this.pathTracePass.reportFrameTime(samplingMs, dispatch);
@@ -105,14 +87,7 @@ export class Frame {
         this.pathTracePass.record(encoder, cameraChanged);
         this.timer.afterSampling(encoder);
 
-        // 降噪接在采样之后、显示之前：它属于「这一帧的呈现成本」，
-        // 不计进 samplingMs（那个数只喂采样预算控制器）。
-        let view: GPUTextureView | null = null;
-        if (this.denoiseOn) {
-            this.pathTracePass.recordGuides(encoder);
-            view = this.denoiser.record(encoder, this.pathTracePass.radianceView(), this.pathTracePass.guideView());
-        }
-        this.display.record(encoder, view ?? this.pathTracePass.radianceView(), this.pathTracePass.radianceVersion);
+        this.display.record(encoder, this.pathTracePass.radianceView(), this.pathTracePass.radianceVersion);
         this.timer.end(encoder, this.pathTracePass.lastDispatch);
 
         this.context.device.queue.submit([encoder.finish()]);
@@ -124,7 +99,6 @@ export class Frame {
     public destroy(): void {
         this.pathTracePass.destroy();
         this.display.destroy();
-        this.denoiser.destroy();
         this.timer.destroy();
     }
 }

@@ -53,19 +53,12 @@ export class PathTracePass {
     /** Set by onResize; consumed (rebuild) at the next record(). */
     private resizeDirty = false;
     private pipeline?: GPUComputePipeline;
-    /** 降噪引导的入口（同一个 shader 模块的 `guides` entry point）。 */
-    private guidePipeline?: GPUComputePipeline;
     private bgl?: GPUBindGroupLayout;
     /** 环境图采样器：u 环绕、v 夹边，与材质贴图那个 repeat/repeat 分开。 */
     private readonly envSampler: GPUSampler;
     private uniformBuf?: GPUBuffer;
     private accumTextures: [GPUTexture?, GPUTexture?] = [undefined, undefined];
     private accumViews: [GPUTextureView?, GPUTextureView?] = [undefined, undefined];
-    /** 降噪引导：xyz = 几何法线，w = 命中距离（天空 0）。与累加纹理同尺寸。 */
-    private guideTexture?: GPUTexture;
-    private guideViewRef?: GPUTextureView;
-    /** 引导缓冲是否过期（换机位 / 换尺寸 / 刚打开降噪）。过期才重算，静态画面不白跑。 */
-    private guidesDirty = true;
     private accumIndex = 0;
     private currentWriteView: GPUTextureView | null = null;
     /** 像素采样顺序表（0..pixelCount-1 的随机排列），resize 时重建。 */
@@ -131,37 +124,6 @@ export class PathTracePass {
         return this.currentWriteView ?? this.outView() ?? null;
     }
 
-    /** 降噪引导视图（尺寸和 radiance 一致）。场景/尺寸就绪之前是 null。 */
-    public guideView(): GPUTextureView | null {
-        return this.guideViewRef ?? null;
-    }
-
-    /**
-     * 重算引导缓冲：整屏一像素一条针孔射线，写几何法线和命中距离。
-     *
-     * 只在机位/尺寸变化后跑一次。成本是「一条光线 × 像素数」，
-     * 相对于这一帧已经打过的 spp 条路径可以忽略。
-     */
-    public recordGuides(encoder: GPUCommandEncoder): void {
-        if (!this.guidesDirty) return;
-        if (!this.guidePipeline || !this.guideViewRef || !this.width || !this.height) return;
-        if (!this.background.hasEnvironment()) return;
-        if (!this.bindGroups[this.accumIndex]) return;
-
-        const pass = encoder.beginComputePass();
-        pass.setPipeline(this.guidePipeline);
-        pass.setBindGroup(0, this.bindGroups[this.accumIndex]!);
-        // guides 用 2D dispatch：4K 的像素数超过一维 65535 组的上限
-        pass.dispatchWorkgroups(Math.ceil(this.width / 8), Math.ceil(this.height / 8));
-        pass.end();
-        this.guidesDirty = false;
-    }
-
-    /** 强制下一帧重算引导（刚打开降噪时用：静态画面里它可能还没算过）。 */
-    public invalidateGuides(): void {
-        this.guidesDirty = true;
-    }
-
     /** 本帧实际调度的像素数（HUD / 预算控制器读取）。 */
     public get lastDispatch(): number {
         return this.lastDispatched;
@@ -183,8 +145,6 @@ export class PathTracePass {
      */
     public requestReset(): void {
         this.resetPending = true;
-        // 画面从这一帧重来，引导缓冲（机位相关）也跟着作废
-        this.guidesDirty = true;
         // frameIndex 故意不归零：它是 LDS 的采样序号，只喂随机数、不参与累加。
         // 拖动时每帧都重置，若序号回到 1，所有像素会一直用同一组随机数 ——
         // 单样本画面会呈现一张固定的屏幕空间花纹，而不像噪点。
@@ -233,9 +193,6 @@ export class PathTracePass {
         for (const t of this.accumTextures) t?.destroy();
         this.accumTextures = [undefined, undefined];
         this.accumViews = [undefined, undefined];
-        this.guideTexture?.destroy();
-        this.guideTexture = undefined;
-        this.guideViewRef = undefined;
         this.bindGroups = [undefined, undefined];
         this.bindGroupWriteViews = [undefined, undefined];
     }
@@ -402,11 +359,6 @@ export class PathTracePass {
                     visibility: GPUShaderStage.COMPUTE,
                     texture: { sampleType: 'float', viewDimension: '2d-array' },
                 },
-                {
-                    binding: 20,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: { format: 'rgba32float', access: 'write-only' },
-                },
                 { binding: 21, visibility: GPUShaderStage.COMPUTE, sampler: { type: 'filtering' } },
             ],
         });
@@ -414,7 +366,6 @@ export class PathTracePass {
         const module = d.createShaderModule({ code: SHADER });
         const layout = d.createPipelineLayout({ bindGroupLayouts: [this.bgl] });
         this.pipeline = d.createComputePipeline({ layout, compute: { module, entryPoint: 'main' } });
-        this.guidePipeline = d.createComputePipeline({ layout, compute: { module, entryPoint: 'guides' } });
     }
 
     /** Size-level resources: only rebuilt when the render resolution changes. */
@@ -444,17 +395,6 @@ export class PathTracePass {
             });
             this.accumViews[i] = this.accumTextures[i]!.createView();
         }
-
-        // 引导缓冲跟着尺寸重建（降噪器按视图对象判断要不要重建 bind group）
-        this.guideTexture?.destroy();
-        this.guideTexture = d.createTexture({
-            size: { width: this.width, height: this.height },
-            format: 'rgba32float',
-            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-            label: 'pt-guides',
-        });
-        this.guideViewRef = this.guideTexture.createView();
-        this.guidesDirty = true;
 
         // 像素采样顺序表：每轮每个像素恰好出现一次。
         this.pixelCount = this.width * this.height;
@@ -508,7 +448,6 @@ export class PathTracePass {
                 { binding: 15, resource: { buffer: this.cameraUniform } },
                 { binding: 16, resource: { buffer: bg.envDistributionBuffer() } },
                 { binding: 19, resource: this.textures.occlusionView() },
-                { binding: 20, resource: this.guideViewRef! },
                 { binding: 21, resource: this.envSampler },
             ],
         });
