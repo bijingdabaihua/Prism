@@ -1,20 +1,18 @@
 /**
  * 光追 Worker —— 一个 Prism 实例一个，独占一个 GPUDevice。
  *
- * 画布用 transferControlToOffscreen() 交进来之后，整个渲染管线（Engine /
- * Camera / Model / Frame）都跑在这个线程里：主线程从头到尾不碰 GPU，
- * 只发生指针事件和尺寸。没交画布时只有设备与资源，不出图。
+ * 整个渲染管线（Engine / Camera / Model / Frame）都跑在这个线程里，画布是
+ * Worker 自己建的 OffscreenCanvas，主线程从头到尾不碰 GPU。画面通过
+ * `camera.listen()` 以 ImageBitmap 推回主线程 —— 每间隔最多一帧。
  */
 import { createDevice, Engine, WebGPUUnavailableError } from '../engine/engine';
-import { Background } from '../engine/background';
-import { Model } from '../engine/model/model';
 import { loadImage } from '../config/load-image';
 import { SCENES } from '../config/config';
 import type { Scene } from '../ir/scene';
 import type { CameraView } from '../ir/camera';
 import type { CameraCommand, WorkerRequest, WorkerResponse } from './protocol';
 import type { SceneStats } from './handles/model';
-import type { PhotoOptions, ViewportSize } from './handles/camera';
+import type { ViewportSize } from './handles/camera';
 
 /**
  * Worker 全局作用域的最小声明。
@@ -29,18 +27,23 @@ const scope = self as unknown as {
 
 /** 这个 Worker 的设备。 */
 let device: GPUDevice | null = null;
-/** 主线程交进来的画布；没交时引擎不存在。 */
+/** 渲染目标 —— Worker 自己持有，主线程看不到。 */
 let surface: OffscreenCanvas | null = null;
 let engine: Engine | null = null;
-/** 没有引擎时的独立环境光与模型（create() 不带画布的用法）。 */
-let background: Background | null = null;
-let model: Model | null = null;
 /** 当前场景的规模；没装过场景时为 null。 */
 let stats: SceneStats | null = null;
 /** 场景自带机位，`camera.reset()` 回到这里。 */
 let sceneView: CameraView | null = null;
 /** 最近一次视口尺寸。引擎重建后要重放，否则新上下文是 0×0。 */
 let viewport: ViewportSize | null = null;
+
+/** 已提交的帧数；listen 靠它判断有没有新画面可推。 */
+let frameSeq = 0;
+/** 上一次推出去的是第几帧。 */
+let lastSentSeq = -1;
+let listening = false;
+let listenInterval = 1;
+let listenTimer: ReturnType<typeof setTimeout> | null = null;
 
 const DEFAULT_VIEW: CameraView = {
     target: { x: 0, y: 0, z: 0 },
@@ -57,26 +60,26 @@ scope.onmessage = (event: MessageEvent<WorkerRequest>) => {
         case 'init':
             void handleInit(request.id);
             return;
-        case 'attachCanvas':
-            enqueue(() => handleAttachCanvas(request.id, request.canvas));
-            return;
         case 'camera':
             handleCamera(request.command);
+            return;
+        case 'listen/start':
+            startListening(request.intervalMs);
+            return;
+        case 'listen/stop':
+            stopListening();
             return;
         case 'background/setImage':
             enqueue(() => handleSetImage(request.id, request.url));
             return;
         case 'background/ready':
-            reply(request.id, activeBackground()?.hasEnvironment() ?? false);
+            reply(request.id, engine?.background.hasEnvironment() ?? false);
             return;
         case 'model/setScene':
             enqueue(() => handleSetScene(request.id, request.key));
             return;
         case 'model/stats':
             reply(request.id, stats);
-            return;
-        case 'takePhoto':
-            enqueue(() => handleTakePhoto(request.id, request.options));
             return;
     }
 };
@@ -85,7 +88,9 @@ async function handleInit(id: number): Promise<void> {
     if (!device) {
         try {
             device = await createDevice();
-            background = new Background(device);
+            // 离屏画布是 Worker 的内部实现，尺寸由 resize 命令驱动
+            surface = new OffscreenCanvas(1, 1);
+            engine = makeEngine();
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             if (err instanceof WebGPUUnavailableError) unsupported(id, message);
@@ -96,30 +101,13 @@ async function handleInit(id: number): Promise<void> {
     reply(id, undefined);
 }
 
-/**
- * 接过画布：引擎在这一刻落地，之后 background / model 的调用都走引擎自己的
- * 那一份，不再用独立资源。
- *
- * 独立模式下已经装好的场景在这里作废（它没有渲染目标，也从来没出过图）。
- * 所以带画布的用法是 create(canvas) 之后才 setScene。
- */
-async function handleAttachCanvas(id: number, canvas: OffscreenCanvas): Promise<void> {
-    try {
-        if (!device) throw new Error('Prism 还没初始化');
-        if (engine) throw new Error('画布已经绑过了');
-        background?.destroy();
-        background = null;
-        model?.destroy();
-        model = null;
-        stats = null;
-        sceneView = null;
-        surface = canvas;
-        engine = Engine.fromDevice(device, canvas);
-        applyViewport();
-        reply(id, undefined);
-    } catch (err) {
-        failure(id, err instanceof Error ? err.message : String(err));
-    }
+/** 装配一个引擎；换场景 / 首次初始化都走这条。 */
+function makeEngine(): Engine {
+    const next = Engine.fromDevice(device!, surface!);
+    next.loop.setOnFrame(() => {
+        frameSeq++;
+    });
+    return next;
 }
 
 /**
@@ -134,9 +122,8 @@ async function handleAttachCanvas(id: number, canvas: OffscreenCanvas): Promise<
  */
 async function handleSetImage(id: number, url: string): Promise<void> {
     try {
-        const bg = activeBackground();
-        if (!bg) throw new Error('Prism 还没初始化');
-        bg.setImage(await loadImage(url));
+        if (!engine) throw new Error('Prism 还没初始化');
+        engine.background.setImage(await loadImage(url));
         reply(id, undefined);
     } catch (err) {
         failure(id, err instanceof Error ? err.message : String(err));
@@ -153,70 +140,29 @@ async function handleSetImage(id: number, url: string): Promise<void> {
  */
 async function handleSetScene(id: number, key: string): Promise<void> {
     try {
-        if (!device) throw new Error('Prism 还没初始化');
+        if (!device || !engine) throw new Error('Prism 还没初始化');
         const entry = SCENES[key];
         if (!entry) {
             throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
         }
 
         const scene = await entry.scene.load();
-
-        if (engine) {
-            const next = Engine.fromDevice(device, surface!);
-            try {
-                next.setScene(scene);
-            } catch (err) {
-                next.release();
-                throw err;
-            }
-            engine.release();
-            engine = next;
-            applyViewport();
-        } else {
-            const next = new Model(device);
-            try {
-                next.compile(scene.instances);
-                background ??= new Background(device);
-                background.setImage(scene.env);
-            } catch (err) {
-                next.destroy();
-                throw err;
-            }
-            model?.destroy();
-            model = next;
+        const next = makeEngine();
+        try {
+            next.setScene(scene);
+        } catch (err) {
+            next.release();
+            throw err;
         }
+        engine.release();
+        engine = next;
+        applyViewport();
 
         sceneView = scene.camera;
         stats = countScene(scene);
+        // 场景换了，之前推出去的画面已经作废：下一次 listen 推新帧
+        lastSentSeq = -1;
         reply(id, undefined);
-    } catch (err) {
-        failure(id, err instanceof Error ? err.message : String(err));
-    }
-}
-
-/**
- * 按当前机位出一张图。
- *
- * 画面从 GPU 读回（Frame.readPixels：显示 pass 画进临时纹理再 copy），
- * 不依赖 canvas 的 convertToBlob —— WebGPU canvas 的读回在部分环境里会
- * 直接失败。编码在 Worker 里用 2D 画布做，主线程拿到的就是最终 Blob。
- */
-async function handleTakePhoto(id: number, options?: PhotoOptions): Promise<void> {
-    try {
-        if (!device || !engine) throw new Error('takePhoto：还没有画面可拍');
-        if (!engine.background.hasEnvironment()) throw new Error('takePhoto：场景还没装好');
-        // 先等已提交的 GPU 工作落地，拍到的才是最新一帧
-        await device.queue.onSubmittedWorkDone();
-        const { width, height, data } = await engine.frame.readPixels();
-        const canvas = new OffscreenCanvas(width, height);
-        const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error('takePhoto：拿不到 2D 编码上下文');
-        ctx.putImageData(new ImageData(data, width, height), 0, 0);
-        const blob = await canvas.convertToBlob({
-            type: options?.type ?? 'image/png',
-            quality: options?.quality,
-        });
-        reply(id, blob);
     } catch (err) {
         failure(id, err instanceof Error ? err.message : String(err));
     }
@@ -225,8 +171,8 @@ async function handleTakePhoto(id: number, options?: PhotoOptions): Promise<void
 /**
  * 机位命令。
  *
- * 没有引擎时（create() 没带画布）命令没处落，直接忽略 —— 句柄的方法仍然
- * 是同步的、不抛，等画布到了 resize 会被重放。
+ * 没有引擎时（还没 init 完）命令没处落，直接忽略 —— 句柄的方法仍然是
+ * 同步的、不抛，等引擎到了 resize 会被重放。
  */
 function handleCamera(command: CameraCommand): void {
     if (command.type === 'resize') {
@@ -262,6 +208,43 @@ function handleCamera(command: CameraCommand): void {
     }
 }
 
+/**
+ * 画面推送。
+ *
+ * 定时器只负责「到点了」；画布上是不是新画面由 frameSeq 判断 —— 渲染
+ * 比间隔慢的时候不重复推同一帧。transferToImageBitmap 会把画布内容搬进
+ * 位图（之后画布清空，下一帧渲染再填满），ImageBitmap 转移给主线程。
+ */
+function startListening(intervalMs: number): void {
+    stopListening();
+    listening = true;
+    listenInterval = Math.max(1, intervalMs);
+    lastSentSeq = -1;
+    deliverFrame();
+}
+
+function stopListening(): void {
+    listening = false;
+    if (listenTimer !== null) {
+        clearTimeout(listenTimer);
+        listenTimer = null;
+    }
+}
+
+function deliverFrame(): void {
+    if (!listening || !surface) return;
+    if (frameSeq !== lastSentSeq) {
+        try {
+            const bitmap = surface.transferToImageBitmap();
+            lastSentSeq = frameSeq;
+            scope.postMessage({ type: 'frame', bitmap }, [bitmap]);
+        } catch {
+            // 画布还没呈现过任何一帧：等下一轮
+        }
+    }
+    listenTimer = setTimeout(deliverFrame, listenInterval);
+}
+
 /** 把最近一次尺寸给引擎 —— 新上下文默认 0×0，不重放就永远跳过渲染。 */
 function applyViewport(): void {
     if (engine && viewport) engine.context.setSize(viewport.width, viewport.height);
@@ -279,16 +262,11 @@ function countScene(scene: Scene): SceneStats {
     return { instances: scene.instances.length, triangles };
 }
 
-function activeBackground(): Background | null {
-    return engine ? engine.background : background;
-}
-
 /**
  * 异步任务的串行化。
  *
  * `loadImage` / `scene.load()` 都是异步的：连着调两次，先发的那次可能后回来，
  * 把后发的那张顶掉。排队之后「最后发起的那次」一定最后落地。
- * 画布 / 场景 / 环境图 / 拍照全走这一条，顺序就是调用的顺序。
  */
 let taskChain: Promise<void> = Promise.resolve();
 function enqueue(task: () => Promise<void>): void {

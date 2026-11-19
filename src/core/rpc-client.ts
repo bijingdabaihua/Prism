@@ -6,7 +6,7 @@ import { PrismUnsupportedError } from './errors';
  *
  * 有返回值的调用带一个自增 id；写操作（机位命令）是「发完不管」。
  * 同一个 MessagePort 上的消息是 FIFO —— 所以 `camera.set()` 之后立刻
- * `takePhoto()`，Worker 一定先看到机位，再看到要图。
+ * `camera.listen()`，Worker 一定先看到机位，再开始推帧。
  *
  * 句柄（handles/）只认识这个类：各自把方法翻译成一条 WorkerRequest，
  * 不管 Worker 里怎么实现。
@@ -15,6 +15,8 @@ export class RpcClient {
     private nextId = 1;
     private closed = false;
     private readonly pending = new Map<number, Pending>();
+    /** listen 推回来的帧。同一时刻只服务一个监听者。 */
+    private frameHandler: ((bitmap: ImageBitmap) => void) | null = null;
 
     constructor(private readonly worker: Worker) {
         worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
@@ -27,8 +29,15 @@ export class RpcClient {
                 this.settle(message.id, (pending) =>
                     pending.reject(new PrismUnsupportedError(message.message)),
                 );
+            } else if (message.type === 'frame') {
+                this.frameHandler?.(message.bitmap);
             }
         });
+    }
+
+    /** 谁在听帧。null = 没有监听者（收到的帧直接丢掉）。 */
+    public setFrameHandler(handler: ((bitmap: ImageBitmap) => void) | null): void {
+        this.frameHandler = handler;
     }
 
     /** 初始化：Worker 里建好设备。 */
@@ -36,17 +45,13 @@ export class RpcClient {
         return this.request<void>((id) => ({ type: 'init', id }));
     }
 
-    /**
-     * 有返回值的一次调用；build 拿 id 组消息。
-     *
-     * transfer 里的东西随消息转移所有权（画布只能走这条）。
-     */
-    public request<T>(build: (id: number) => WorkerRequest, transfer?: Transferable[]): Promise<T> {
+    /** 有返回值的一次调用；build 拿 id 组消息。 */
+    public request<T>(build: (id: number) => WorkerRequest): Promise<T> {
         const id = this.nextId++;
         return new Promise<T>((resolve, reject) => {
             this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
             try {
-                this.send(build(id), transfer);
+                this.send(build(id));
             } catch (err) {
                 this.pending.delete(id);
                 reject(err);
@@ -54,15 +59,16 @@ export class RpcClient {
         });
     }
 
-    /** 发完不管：机位命令走这条，不等回执。 */
-    public send(request: WorkerRequest, transfer?: Transferable[]): void {
+    /** 发完不管：机位命令 / listen 开关走这条，不等回执。 */
+    public send(request: WorkerRequest): void {
         if (this.closed) throw new Error('Prism 已经 dispose');
-        this.worker.postMessage(request, transfer ?? []);
+        this.worker.postMessage(request);
     }
 
     /** Worker 走了：还挂着的请求全部拒绝，之后的调用直接抛。 */
     public dispose(): void {
         this.closed = true;
+        this.frameHandler = null;
         for (const pending of this.pending.values()) {
             pending.reject(new Error('Prism 已经 dispose'));
         }

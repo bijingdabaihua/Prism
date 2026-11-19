@@ -11,7 +11,7 @@
  *
  * 和门面之间的类型是纯类型依赖（`import type`），编译后擦除，没有运行时环。
  */
-import type { CameraSpec, PhotoOptions, ViewportSize } from './handles/camera';
+import type { CameraSpec, ViewportSize } from './handles/camera';
 import type { SceneKey } from './handles/model';
 
 /** 机位命令：全部是「照做」的写操作，没有返回值。 */
@@ -26,17 +26,16 @@ export type CameraCommand =
 /** 主线程 → Worker。 */
 export type WorkerRequest =
     | { type: 'init'; id: number }
-    /** 把画布交给 Worker（transferControlToOffscreen 之后）。 */
-    | { type: 'attachCanvas'; id: number; canvas: OffscreenCanvas }
     | { type: 'camera'; command: CameraCommand }
+    /** 开始按间隔把画面推回主线程。 */
+    | { type: 'listen/start'; intervalMs: number }
+    | { type: 'listen/stop' }
     | { type: 'background/setImage'; id: number; url: string }
     | { type: 'background/ready'; id: number }
     /** 装载场景：读清单 → 造 Scene IR → 编译几何 / 材质。 */
     | { type: 'model/setScene'; id: number; key: SceneKey }
     /** 当前场景规模；没装过时为 null。 */
-    | { type: 'model/stats'; id: number }
-    /** 要一张图。options 省略时按默认参数拍。 */
-    | { type: 'takePhoto'; id: number; options?: PhotoOptions };
+    | { type: 'model/stats'; id: number };
 
 /** Worker → 主线程。 */
 export type WorkerResponse =
@@ -45,4 +44,6 @@ export type WorkerResponse =
     /** 这次调用失败了。 */
     | { type: 'failure'; id: number; message: string }
     /** 这台机器跑不了 WebGPU。 */
-    | { type: 'unsupported'; id: number; message: string };
+    | { type: 'unsupported'; id: number; message: string }
+    /** 一帧画面（listen 的推送，没有 id）。 */
+    | { type: 'frame'; bitmap: ImageBitmap };

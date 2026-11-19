@@ -3,8 +3,8 @@ import type { RpcClient } from '../rpc-client';
 /**
  * 相机句柄：契约 + 主线程侧实现。
  *
- * Worker 里的 `Camera` 才是真的机位；这边只把方法翻成消息。除 takePhoto
- * 之外全部是同步的「发完不管」—— 调用即返回，不等帧。
+ * Worker 里的 `Camera` 才是真的机位；这边只把方法翻成消息。命令全部是
+ * 同步的「发完不管」；只有 `listen` 有心跳 —— 帧是 Worker 主动推回来的。
  */
 
 /**
@@ -65,19 +65,22 @@ export interface CameraHandle {
     zoom(factor: number): void;
     /** 平移 target，单位是屏幕像素 —— 直接接指针的位移。 */
     pan(deltaX: number, deltaY: number): void;
-    /** 按当前机位渲染一张图，返回最终结果。 */
-    takePhoto(options?: PhotoOptions): Promise<Blob>;
-}
-
-export interface PhotoOptions {
-    /** 输出格式，默认 image/png。 */
-    type?: 'image/png' | 'image/jpeg' | 'image/webp';
-    /** 有损格式的质量，0~1。 */
-    quality?: number;
+    /**
+     * 按间隔把当前画面推回来 —— 画面是相机的输出，所以挂在相机上。
+     *
+     * 每 `intervalMs` 毫秒最多推一帧；渲染比它慢就等下一帧，不重复推同一张。
+     * 推回来的是 `ImageBitmap`：主线程用 bitmaprenderer 的
+     * `transferFromImageBitmap()` 直接贴上去，不经过读回和编码。
+     *
+     * 返回取消函数。同一时刻只允许一个监听者。
+     */
+    listen(intervalMs: number, onFrame: (frame: ImageBitmap) => void): () => void;
 }
 
 /** 相机句柄的主线程实现：每条命令原样转给 Worker，不等回执。 */
 export class RpcCamera implements CameraHandle {
+    private listener: ((frame: ImageBitmap) => void) | null = null;
+
     constructor(private readonly rpc: RpcClient) {}
 
     public set(spec: CameraSpec): void {
@@ -104,7 +107,20 @@ export class RpcCamera implements CameraHandle {
         this.rpc.send({ type: 'camera', command: { type: 'pan', deltaX, deltaY } });
     }
 
-    public takePhoto(options?: PhotoOptions): Promise<Blob> {
-        return this.rpc.request<Blob>((id) => ({ type: 'takePhoto', id, options }));
+    public listen(intervalMs: number, onFrame: (frame: ImageBitmap) => void): () => void {
+        if (this.listener) throw new Error('camera.listen：已经有一个监听者');
+        this.listener = onFrame;
+        this.rpc.setFrameHandler(onFrame);
+        this.rpc.send({ type: 'listen/start', intervalMs });
+        return () => {
+            if (this.listener !== onFrame) return;
+            this.listener = null;
+            this.rpc.setFrameHandler(null);
+            try {
+                this.rpc.send({ type: 'listen/stop' });
+            } catch {
+                // 已经 dispose：Worker 都没了，不用停
+            }
+        };
     }
 }

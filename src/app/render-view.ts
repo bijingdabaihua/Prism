@@ -1,21 +1,24 @@
-import { Prism } from '../core';
-import type { SceneEntry } from '../config/config';
+import { Prism } from '../core/prism';
 
 /** 场景编译完之后，再给 Worker 这么久把画面铺满，然后撤 loading。 */
 const LOADING_HOLD_MS = 1500;
+/** 请求的画面推送间隔：约 60 Hz，实际受渲染帧率限制。 */
+const FRAME_INTERVAL_MS = 1000 / 60;
 
 /**
- * 渲染页外壳：画布、输入、加载状态、HUD。
+ * 渲染页外壳：画布、输入、加载状态。
  *
- * 这里只认识 `Prism` —— 画布交给它的 Worker，指针事件翻译成相机命令，
- * 尺寸从 DOM 量出来送进去。主线程不碰任何 GPU 资源。
+ * 这里只认识 `Prism` —— 画面是 Worker 推回来的 ImageBitmap，主线程用
+ * bitmaprenderer 直接贴上，不碰任何 GPU 资源。
  */
 export class RenderView {
     private prism: Prism | null = null;
     private canvas: HTMLCanvasElement | null = null;
+    private context: ImageBitmapRenderingContext | null = null;
     private stage: HTMLElement | null = null;
     private loading: HTMLElement | null = null;
     private resizeObserver: ResizeObserver | null = null;
+    private stopListening: (() => void) | null = null;
     private dragging = false;
     private dragMode: '' | 'orbit' | 'pan' | 'zoom' = '';
     private pinching = false;
@@ -23,11 +26,9 @@ export class RenderView {
     private lastX = 0;
     private lastY = 0;
     private pinchDist = 0;
-    private readonly config: SceneEntry;
     private readonly key: string;
 
-    constructor(config: SceneEntry, key: string) {
-        this.config = config;
+    constructor(key: string) {
         this.key = key;
     }
 
@@ -44,10 +45,13 @@ export class RenderView {
         try {
             const canvas = document.createElement('canvas');
             this.canvas = canvas;
+            const context = canvas.getContext('bitmaprenderer');
+            if (!context) throw new Error('浏览器不支持 bitmaprenderer canvas');
+            this.context = context;
             stage.insertBefore(canvas, loading);
 
             this.updateLoading('Initializing GPU...');
-            const prism = await Prism.create(canvas);
+            const prism = await Prism.create();
             this.prism = prism;
             // 初始化期间被切走（连点两下卡片）—— 把刚建好的 Worker 还回去
             if (this.disposed) {
@@ -55,7 +59,7 @@ export class RenderView {
                 return;
             }
 
-            // 画布已经是离屏的了，尺寸只能从 DOM 量出来送进去
+            // Worker 里的画布尺寸只能由主线程量好送进去
             this.watchSize();
 
             // 返回画廊的入口。浏览器后退也行，但访客不会去按。
@@ -71,11 +75,19 @@ export class RenderView {
                 prism.dispose();
                 return;
             }
+
+            // 画面从这一条流里来：Worker 每帧推一张 ImageBitmap，贴上即显示
+            this.stopListening = prism.camera.listen(FRAME_INTERVAL_MS, (bitmap) => {
+                if (!this.context) {
+                    bitmap.close();
+                    return;
+                }
+                this.context.transferFromImageBitmap(bitmap);
+            });
             this.bindInput();
 
-            // 编译完成不等于画面已经铺满：Worker 的采样预算从 4096 像素/帧起步，
-            // 页面这边看不到它的帧进度，只能等一小会儿再撤 loading。
-            // 底下的画布其实一直在画，等的是「不再是零星几点」的那一刻。
+            // 编译完成不等于画面已经铺满：采样预算从 4096 像素/帧起步，
+            // 等一小会儿再撤 loading，避免露出半张没光的画面。
             await new Promise<void>((resolve) => setTimeout(resolve, LOADING_HOLD_MS));
             loading.classList.add('hidden');
         } catch (err) {
@@ -86,6 +98,8 @@ export class RenderView {
 
     public unmount(): void {
         this.disposed = true;
+        this.stopListening?.();
+        this.stopListening = null;
         this.resizeObserver?.disconnect();
         this.resizeObserver = null;
         this.prism?.dispose();
@@ -93,10 +107,10 @@ export class RenderView {
 
         window.removeEventListener('mousemove', this.onMouseMove);
         window.removeEventListener('mouseup', this.onMouseUp);
-        window.removeEventListener('keydown', this.onKeyDown);
 
         this.loading?.remove();
         this.loading = null;
+        this.context = null;
         this.canvas = null;
         this.stage?.remove();
         this.stage = null;
@@ -110,6 +124,9 @@ export class RenderView {
             const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
             const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
             const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+            // bitmaprenderer 不会因为贴位图而改宽高属性，这里跟 Worker 保持一致
+            canvas.width = width;
+            canvas.height = height;
             this.prism?.camera.resize({ width, height });
         };
         this.resizeObserver = new ResizeObserver(apply);
@@ -128,7 +145,6 @@ export class RenderView {
         canvas.addEventListener('touchend', this.onTouchEnd);
         window.addEventListener('mousemove', this.onMouseMove);
         window.addEventListener('mouseup', this.onMouseUp);
-        window.addEventListener('keydown', this.onKeyDown);
     }
 
     private buildLoading(): HTMLElement {
@@ -146,23 +162,6 @@ export class RenderView {
         if (el) el.textContent = msg;
         if (isError) {
             this.loading?.querySelector('.spinner')?.classList.add('hidden');
-        }
-    }
-
-    /** 截图：Worker 按当前机位编码好 Blob，主线程只负责下载。 */
-    private async downloadScreenshot(): Promise<void> {
-        const prism = this.prism;
-        if (!prism) return;
-        try {
-            const blob = await prism.camera.takePhoto();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `render-${this.config.card.title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}.png`;
-            a.click();
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            console.warn('截图失败：', err);
         }
     }
 
@@ -266,10 +265,6 @@ export class RenderView {
         this.dragging = false;
         this.pinching = false;
         this.dragMode = '';
-    };
-
-    private onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 's' || e.key === 'S') void this.downloadScreenshot();
     };
 
     private touchDistance(e: TouchEvent): number {

@@ -7,6 +7,13 @@ import type { CameraHandle } from './handles/camera';
 import type { BackgroundHandle } from './handles/background';
 import type { ModelHandle } from './handles/model';
 
+// core 的公共面：外部只从这一个文件拿东西。prism.ts 同时也是唯一入口 ——
+// Prism 类、错误类型、三个句柄的契约都在这里露出来，内部文件怎么摆不关外面的事。
+export { PrismUnsupportedError } from './errors';
+export type { CameraSpec, CameraHandle, ViewportSize } from './handles/camera';
+export type { BackgroundHandle } from './handles/background';
+export type { SceneKey, ModelHandle, SceneStats } from './handles/model';
+
 /**
  * 门面：起 Worker、装配三个句柄、管生命周期。
  *
@@ -14,8 +21,8 @@ import type { ModelHandle } from './handles/model';
  * 主线程从头到尾不碰 GPU。实例只对外暴露 camera / background / model
  * 三个只读句柄；各自的契约和主线程实现都在 handles/。
  *
- * 业务层只认识这一个类。画布和引擎还没搬进 Worker：机位命令现在只被收下，
- * takePhoto 会明确拒绝。
+ * 业务层只认识这一个类。画面是相机的输出：`camera.listen(interval, cb)`
+ * 每 interval 毫秒把一帧 ImageBitmap 推回主线程，worker 内部自己持有画布。
  */
 export class Prism {
     /**
@@ -26,12 +33,10 @@ export class Prism {
      * Worker 里仍可能返回 null（驱动进黑名单、虚拟机、关了硬件加速），
      * 那种情况同样以 PrismUnsupportedError 拒绝 —— 消息由 Worker 报回来。
      *
-     * 传了画布：`transferControlToOffscreen()` 把它交给 Worker，之后所有
-     * 绘制都在 Worker 里发生，主线程只量尺寸、发生指针事件。
-     * 不传画布：只有设备和资源（场景能装、环境图能换），但不出图 ——
-     * 适合预加载或后台实例。
+     * 不接画布：Worker 内部自建 OffscreenCanvas，画面通过
+     * `camera.listen()` 以 ImageBitmap 推回来 —— 主线程不碰 GPU。
      */
-    public static async create(canvas?: HTMLCanvasElement): Promise<Prism> {
+    public static async create(): Promise<Prism> {
         if (!navigator.gpu) {
             throw new PrismUnsupportedError('WebGPU is not available. Try Chrome 113+.');
         }
@@ -44,17 +49,6 @@ export class Prism {
                 READY_TIMEOUT_MS,
                 `Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内就绪`,
             );
-            if (canvas) {
-                const surface = canvas.transferControlToOffscreen();
-                await withTimeout(
-                    rpc.request<void>(
-                        (id) => ({ type: 'attachCanvas', id, canvas: surface }),
-                        [surface],
-                    ),
-                    READY_TIMEOUT_MS,
-                    `Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内接过画布`,
-                );
-            }
         } catch (err) {
             // 半途失败的 Worker 不能留着：它可能已经占着设备了
             rpc.dispose();

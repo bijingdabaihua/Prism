@@ -52,7 +52,7 @@ function show(hash: string): void {
     if (route.name === 'render') {
         // 画廊本身就是静态图，没有 WebGPU 也能看；只有渲染页必须降级。
         const config = SCENES[route.key];
-        const view = navigator.gpu ? new RenderView(config, route.key) : new UnsupportedView(config);
+        const view = navigator.gpu ? new RenderView(route.key) : new UnsupportedView(config);
         current = view;
         void view.mount(root);
     } else {
