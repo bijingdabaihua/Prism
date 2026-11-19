@@ -1,5 +1,7 @@
+import type { WorkerRequest, WorkerResponse } from './protocol';
+
 /**
- * 对外唯一入口 —— 接口草案，暂未接入任何实现。
+ * 对外唯一入口 —— 接口草案，场景与画布还没接进来。
  *
  * 实际渲染跑在 Worker 里，主线程拿到的只是 RPC 句柄；渲染器本身不需要
  * canvas，结果从 Worker 里出来。
@@ -7,8 +9,8 @@
  * 业务层只认识这一个类，实例对外只暴露 camera / background / model
  * 三个只读句柄。
  *
- * 当前只定形状，create 只做了主线程那一眼检查，其余是占位。
- * 确认接口之后再接 engine / config。
+ * 现在 create 完成的是「起 Worker、把设备建好」这一段：句柄上的方法还是
+ * 占位。确认接口之后再接 engine / config。
  */
 export class Prism {
     /**
@@ -17,13 +19,22 @@ export class Prism {
      * 主线程先看一眼 navigator.gpu —— 没有就连 Worker 都不起，直接拒绝。
      * 这一眼只说明「浏览器有这个 API」，不保证真能跑：requestAdapter() 在
      * Worker 里仍可能返回 null（驱动进黑名单、虚拟机、关了硬件加速），
-     * 那种情况同样以 PrismUnsupportedError 拒绝。
+     * 那种情况同样以 PrismUnsupportedError 拒绝 —— 消息由 Worker 报回来。
      */
     public static async create(): Promise<Prism> {
         if (!navigator.gpu) {
             throw new PrismUnsupportedError('WebGPU is not available. Try Chrome 113+.');
         }
-        throw new Error('Prism.create is not implemented yet');
+
+        const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+        try {
+            await waitForReady(worker);
+        } catch (err) {
+            // 半途失败的 Worker 不能留着：它可能已经占着设备了
+            worker.terminate();
+            throw err;
+        }
+        return new Prism(worker);
     }
 
     /** 观察者：机位控制。 */
@@ -33,6 +44,10 @@ export class Prism {
     /** 场景几何：已编译的模型。 */
     public declare readonly model: ModelHandle;
 
+    private disposed = false;
+
+    private constructor(private readonly worker: Worker) {}
+
     /**
      * 释放这个实例的 Worker 和 GPU 设备。
      *
@@ -40,10 +55,10 @@ export class Prism {
      * 重复调用无副作用。不 dispose 就等于一直占着一个 Worker 和一份显存。
      */
     public dispose(): void {
-        throw new Error('Prism.dispose is not implemented yet');
+        if (this.disposed) return;
+        this.disposed = true;
+        this.worker.terminate();
     }
-
-    private constructor() {}
 }
 
 /** 这台机器跑不了 WebGPU —— 调用方据此走降级页，而不是错误态。 */
@@ -52,6 +67,47 @@ export class PrismUnsupportedError extends Error {
         super(message);
         this.name = 'PrismUnsupportedError';
     }
+}
+
+/** Worker 建设备的上限。requestAdapter 自身有 8 s 超时，这里再兜一层。 */
+const READY_TIMEOUT_MS = 15000;
+
+/**
+ * 等 Worker 回报就绪。
+ *
+ * 三种结局：ready → 成功；unsupported → 转成 PrismUnsupportedError；
+ * failed / 超时 / Worker 脚本本身出错 → 普通错误。
+ */
+function waitForReady(worker: Worker): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const finish = (settle: () => void) => {
+            clearTimeout(timer);
+            worker.removeEventListener('message', onMessage);
+            worker.removeEventListener('error', onError);
+            settle();
+        };
+        const timer = setTimeout(
+            () => finish(() => reject(new Error(`Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内就绪`))),
+            READY_TIMEOUT_MS,
+        );
+        const onMessage = (event: MessageEvent<WorkerResponse>) => {
+            const message = event.data;
+            if (message.type === 'ready') {
+                finish(resolve);
+            } else if (message.type === 'unsupported') {
+                finish(() => reject(new PrismUnsupportedError(message.message)));
+            } else if (message.type === 'failed') {
+                finish(() => reject(new Error(message.message)));
+            }
+        };
+        const onError = (event: ErrorEvent) => {
+            finish(() => reject(new Error(`Prism.create: Worker 出错：${event.message}`)));
+        };
+
+        worker.addEventListener('message', onMessage);
+        worker.addEventListener('error', onError);
+        worker.postMessage({ type: 'init' } satisfies WorkerRequest);
+    });
 }
 
 /**

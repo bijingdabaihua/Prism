@@ -6,6 +6,47 @@ import { Camera } from './camera';
 import { Frame } from './frame/frame';
 import { RenderLoop } from './loop';
 
+/** 拿不到 WebGPU 设备 —— 调用方据此走降级页，而不是当成普通错误。 */
+export class WebGPUUnavailableError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'WebGPUUnavailableError';
+    }
+}
+
+/**
+ * 申请 adapter + device。主线程和 Worker 走同一条 —— 设备的申请条件只写一遍。
+ *
+ * 浏览器没有 WebGPU、或者拿不到 adapter（驱动进黑名单、虚拟机、关了硬件加速），
+ * 都抛 WebGPUUnavailableError；requestDevice 自身的失败原样上抛。
+ */
+export async function createDevice(): Promise<GPUDevice> {
+    if (!navigator.gpu) {
+        throw new WebGPUUnavailableError('WebGPU not supported. Try Chrome 113+.');
+    }
+
+    // 双显卡笔记本上 dGPU 休眠时 'high-performance' 档可能拿不到 adapter，
+    // 超时或 null 都退回默认档再试一次。
+    const adapter =
+        (await raceTimeout(
+            navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }),
+            ADAPTER_TIMEOUT_MS,
+        )) ?? (await raceTimeout(navigator.gpu.requestAdapter(), ADAPTER_TIMEOUT_MS));
+    if (!adapter) {
+        throw new WebGPUUnavailableError(
+            'No WebGPU adapter. 打开 chrome://gpu 确认 WebGPU 为 Enabled，' +
+                '并检查系统设置里「使用图形加速」是否开启。',
+        );
+    }
+
+    // 时间戳用于测量每帧 GPU 采样耗时（采样预算控制器的输入）。
+    // 拿不到就退回 onSubmittedWorkDone，不影响渲染。
+    const requiredFeatures: GPUFeatureName[] = [];
+    if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
+
+    return adapter.requestDevice({ requiredFeatures });
+}
+
 /**
  * 组装根：把 GPU 上下文、场景、相机、帧循环拼起来。
  *
@@ -13,28 +54,7 @@ import { RenderLoop } from './loop';
  */
 export class Engine {
     public static async create(canvas: HTMLCanvasElement): Promise<Engine> {
-        if (!navigator.gpu) throw new Error('WebGPU not supported. Try Chrome 113+.');
-
-        // 双显卡笔记本上 dGPU 休眠时 'high-performance' 档可能拿不到 adapter，
-        // 超时或 null 都退回默认档再试一次。
-        const adapter =
-            (await raceTimeout(
-                navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }),
-                ADAPTER_TIMEOUT_MS,
-            )) ?? (await raceTimeout(navigator.gpu.requestAdapter(), ADAPTER_TIMEOUT_MS));
-        if (!adapter) {
-            throw new Error(
-                'No WebGPU adapter. 打开 chrome://gpu 确认 WebGPU 为 Enabled，' +
-                    '并检查系统设置里「使用图形加速」是否开启。',
-            );
-        }
-
-        // 时间戳用于测量每帧 GPU 采样耗时（采样预算控制器的输入）。
-        // 拿不到就退回 onSubmittedWorkDone，不影响渲染。
-        const requiredFeatures: GPUFeatureName[] = [];
-        if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
-
-        const device = await adapter.requestDevice({ requiredFeatures });
+        const device = await createDevice();
         return new Engine(device, canvas);
     }
 
