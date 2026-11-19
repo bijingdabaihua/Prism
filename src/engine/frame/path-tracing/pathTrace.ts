@@ -72,6 +72,8 @@ export class PathTracePass {
     private orderBuf?: GPUBuffer;
     /** Ping-pong bind groups, indexed by the current write index. */
     private bindGroups: [GPUBindGroup?, GPUBindGroup?] = [undefined, undefined];
+    /** 建这批 bind group 时环境图的版本号；和 Background.version 不一致就重建。 */
+    private bindGroupEnvVersion = -1;
     /** Which write view each cached bind group was created against (detects texture rebuild). */
     private bindGroupWriteViews: [GPUTextureView?, GPUTextureView?] = [undefined, undefined];
 
@@ -261,9 +263,13 @@ export class PathTracePass {
         // 相机动了 → 清空累加、游标归零（采样预算保留，成本没有变）
         if (cameraChanged) this.requestReset();
 
-        // bind group 只在两种情况下重建：还没建过，或累积纹理被 resize 换成了新视图
-        // （两张 ping-pong 是新旧视图各建一次，命中任一即说明整批都过期了）。
-        if (!this.bindGroups[0] || this.bindGroupWriteViews[0] !== this.accumViews[0]) {
+        // bind group 在三种情况下重建：还没建过、累积纹理被 resize 换成了新视图
+        // （两张 ping-pong 是新旧视图各建一次，命中任一即说明整批都过期了），
+        // 或环境图换了（旧纹理已 destroy，绑定必须跟着换）。
+        const envChanged = this.bindGroupEnvVersion !== bg.version;
+        if (!this.bindGroups[0] || this.bindGroupWriteViews[0] !== this.accumViews[0] || envChanged) {
+            // 光照变了，旧累积已经没有意义
+            if (envChanged && this.bindGroupEnvVersion !== -1) this.requestReset();
             this.rebuildBindGroups();
         }
 
@@ -475,6 +481,7 @@ export class PathTracePass {
         this.bindGroups[1] = this.createBindGroup(this.accumViews[1]!, this.accumViews[0]!);
         this.bindGroupWriteViews[0] = this.accumViews[0];
         this.bindGroupWriteViews[1] = this.accumViews[1];
+        this.bindGroupEnvVersion = this.background.version;
     }
 
     /** Only the ping-pong views change per rebuild; all scene resources are read from the held references. */

@@ -1,18 +1,21 @@
-import { Engine } from '../engine/engine';
-import type { FrameStats } from '../engine/frame/frame';
+import { Prism } from '../core';
 import type { SceneEntry } from '../config/config';
+
+/** 场景编译完之后，再给 Worker 这么久把画面铺满，然后撤 loading。 */
+const LOADING_HOLD_MS = 1500;
 
 /**
  * 渲染页外壳：画布、输入、加载状态、HUD。
  *
- * 这里可以出现 DOM 与事件；engine/ 不行。
+ * 这里只认识 `Prism` —— 画布交给它的 Worker，指针事件翻译成相机命令，
+ * 尺寸从 DOM 量出来送进去。主线程不碰任何 GPU 资源。
  */
 export class RenderView {
-    private engine: Engine | null = null;
+    private prism: Prism | null = null;
     private canvas: HTMLCanvasElement | null = null;
     private stage: HTMLElement | null = null;
-    private hud: HTMLElement | null = null;
     private loading: HTMLElement | null = null;
+    private resizeObserver: ResizeObserver | null = null;
     private dragging = false;
     private dragMode: '' | 'orbit' | 'pan' | 'zoom' = '';
     private pinching = false;
@@ -20,16 +23,12 @@ export class RenderView {
     private lastX = 0;
     private lastY = 0;
     private pinchDist = 0;
-    /** 后台继续渲染的开关状态，HUD 末尾显示。 */
-    private keepRunning = false;
-    private denoising = false;
-    private lastStats: FrameStats | null = null;
-    /** 开关打开期间挂着的静音音源，见 startSilentAudio。 */
-    private silentAudio: { ctx: AudioContext; osc: OscillatorNode } | null = null;
     private readonly config: SceneEntry;
+    private readonly key: string;
 
-    constructor(config: SceneEntry) {
+    constructor(config: SceneEntry, key: string) {
         this.config = config;
+        this.key = key;
     }
 
     public async mount(container: HTMLElement): Promise<void> {
@@ -48,18 +47,16 @@ export class RenderView {
             stage.insertBefore(canvas, loading);
 
             this.updateLoading('Initializing GPU...');
-            const engine = await Engine.create(canvas);
-            this.engine = engine;
-            // 初始化期间被切走（连点两下卡片）—— 把刚建好的 device 还回去
+            const prism = await Prism.create(canvas);
+            this.prism = prism;
+            // 初始化期间被切走（连点两下卡片）—— 把刚建好的 Worker 还回去
             if (this.disposed) {
-                engine.destroy();
+                prism.dispose();
                 return;
             }
 
-            const hud = document.createElement('div');
-            hud.className = 'hud';
-            this.hud = hud;
-            stage.appendChild(hud);
+            // 画布已经是离屏的了，尺寸只能从 DOM 量出来送进去
+            this.watchSize();
 
             // 返回画廊的入口。浏览器后退也行，但访客不会去按。
             const back = document.createElement('a');
@@ -70,60 +67,61 @@ export class RenderView {
 
             const hint = document.createElement('div');
             hint.className = 'stage-hint';
-            hint.textContent =
-                '实时路径追踪 · 中键旋转 · Shift+中键平移 · 滚轮缩放 · 按 D 降噪 · 按 S 保存截图 · 按 K 后台继续渲染';
+            hint.textContent = '实时路径追踪 · 拖动旋转 · 滚轮缩放 · 按 S 保存截图';
             stage.appendChild(hint);
 
             this.updateLoading('Loading scene...');
-            const scene = await this.config.scene.load();
+            await prism.model.setScene(this.key);
             if (this.disposed) {
-                engine.destroy();
+                prism.dispose();
                 return;
             }
-            engine.setScene(scene);
-            engine.loop.setOnFrame((stats) => this.renderHud(stats));
-
             this.bindInput();
             hint.classList.add('shown');
             setTimeout(() => hint.classList.remove('shown'), 6000);
 
-            // 第一帧真正提交之后再撤 loading：BVH 和贴图上传都在 setScene 里同步做完，
-            // 撤早了会露出半张没光/没几何的画面。
-            // 后台标签页里 rAF 不触发，加个兜底，否则 loading 永远挂着。
-            await new Promise<void>((resolve) => {
-                const timer = setTimeout(resolve, 2000);
-                requestAnimationFrame(() =>
-                    requestAnimationFrame(() => {
-                        clearTimeout(timer);
-                        resolve();
-                    }),
-                );
-            });
+            // 编译完成不等于画面已经铺满：Worker 的采样预算从 4096 像素/帧起步，
+            // 页面这边看不到它的帧进度，只能等一小会儿再撤 loading。
+            // 底下的画布其实一直在画，等的是「不再是零星几点」的那一刻。
+            await new Promise<void>((resolve) => setTimeout(resolve, LOADING_HOLD_MS));
             loading.classList.add('hidden');
-        } catch (err: any) {
-            this.updateLoading(err?.message ?? String(err), true);
+        } catch (err) {
+            this.updateLoading(err instanceof Error ? err.message : String(err), true);
             loading.classList.add('error');
         }
     }
 
     public unmount(): void {
         this.disposed = true;
-        this.stopSilentAudio();
-        if (this.engine) {
-            this.engine.destroy();
-            this.engine = null;
-        }
+        this.resizeObserver?.disconnect();
+        this.resizeObserver = null;
+        this.prism?.dispose();
+        this.prism = null;
+
         window.removeEventListener('mousemove', this.onMouseMove);
         window.removeEventListener('mouseup', this.onMouseUp);
         window.removeEventListener('keydown', this.onKeyDown);
 
-        this.hud?.remove();
-        this.hud = null;
         this.loading?.remove();
         this.loading = null;
         this.canvas = null;
         this.stage?.remove();
         this.stage = null;
+    }
+
+    /** 把画布的物理像素尺寸喂给相机（Worker 里读不到 clientWidth / dpr）。 */
+    private watchSize(): void {
+        const canvas = this.canvas;
+        if (!canvas) return;
+        const apply = () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+            const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+            const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+            this.prism?.camera.resize({ width, height });
+        };
+        this.resizeObserver = new ResizeObserver(apply);
+        this.resizeObserver.observe(canvas);
+        apply();
     }
 
     private bindInput(): void {
@@ -158,88 +156,29 @@ export class RenderView {
         }
     }
 
-    private renderHud(stats: FrameStats): void {
-        this.lastStats = stats;
-        if (!this.hud) return;
-        // 采样耗时单独列出来：它和总耗时的差就是显示 + 提交间隙。
-        // 采样量掉到下限时，一眼能分清是「算得慢」还是「在等呈现」。
-        this.hud.textContent =
-            `${stats.pixels.toLocaleString()} px/帧 · ${stats.samples} spp · ` +
-            `${stats.gpuMs.toFixed(1)} ms（采样 ${stats.samplingMs.toFixed(1)}）· ` +
-            `${stats.fps.toFixed(0)} fps` +
-            (this.denoising ? ' · 降噪' : '') +
-            (this.keepRunning ? ' · 后台继续中' : '');
-    }
-
-    /**
-     * 后台继续渲染。
-     *
-     * 光靠 loop 的定时器兜底不够：隐藏的标签页会被浏览器节流，定时器先被压到
-     * 一秒一次、五分钟后再压到一分钟一次 —— 一分钟一帧等于没在算。正在播放
-     * 音频的页面不受这条约束，所以开关打开时挂一个 -80 dB 的振荡器，耳朵听不见，
-     * 但页面不再是「安静的」。代价是标签上多一个喇叭图标。
-     *
-     * 用键盘事件触发，正好满足自动播放策略要求的用户手势。
-     */
-    private toggleKeepRunning(): void {
-        this.keepRunning = !this.keepRunning;
-        this.engine?.loop.setKeepRunning(this.keepRunning);
-        if (this.keepRunning) this.startSilentAudio();
-        else this.stopSilentAudio();
-        // 开关状态挂在 HUD 末尾，不用等下一帧
-        if (this.lastStats) this.renderHud(this.lastStats);
-    }
-
-    private startSilentAudio(): void {
-        if (this.silentAudio) return;
+    /** 截图：Worker 按当前机位编码好 Blob，主线程只负责下载。 */
+    private async downloadScreenshot(): Promise<void> {
+        const prism = this.prism;
+        if (!prism) return;
         try {
-            const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            // 不是 0：完全静音的信号有的实现会当成「没在放」
-            gain.gain.value = 1e-4;
-            osc.connect(gain).connect(ctx.destination);
-            osc.start();
-            void ctx.resume();
-            this.silentAudio = { ctx, osc };
-        } catch {
-            // 没有音频设备也不影响：定时器兜底照跑，只是可能被降频
-        }
-    }
-
-    private stopSilentAudio(): void {
-        if (!this.silentAudio) return;
-        try {
-            this.silentAudio.osc.stop();
-        } catch {
-            /* 已经停了 */
-        }
-        void this.silentAudio.ctx.close();
-        this.silentAudio = null;
-    }
-
-    private downloadScreenshot(): void {
-        if (!this.canvas) return;
-        this.canvas.toBlob((blob) => {
-            if (!blob) return;
+            const blob = await prism.camera.takePhoto();
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `render-${this.config.card.title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}.png`;
             a.click();
             URL.revokeObjectURL(url);
-        }, 'image/png');
+        } catch (err) {
+            console.warn('截图失败：', err);
+        }
     }
 
     private orbit(dx: number, dy: number): void {
-        const cam = this.engine?.camera;
-        if (!cam) return;
-        cam.orbitTheta(dx * 0.008);
-        cam.orbitPhi(-dy * 0.008);
+        this.prism?.camera.orbit(dx * 0.008, -dy * 0.008);
     }
 
     private pan(dx: number, dy: number): void {
-        this.engine?.camera.pan(dx, dy);
+        this.prism?.camera.pan(dx, dy);
     }
 
     /**
@@ -280,7 +219,7 @@ export class RenderView {
             this.pan(dx, dy);
         } else if (this.dragMode === 'zoom') {
             // 往上拖推近：指数映射，拖多远都是等比例，不会突然冲过头
-            this.engine?.camera.zoom(Math.exp(dy * 0.005));
+            this.prism?.camera.zoom(Math.exp(dy * 0.005));
         }
     };
 
@@ -291,7 +230,7 @@ export class RenderView {
 
     private onWheel = (e: WheelEvent) => {
         e.preventDefault();
-        this.engine?.camera.zoom(e.deltaY > 0 ? 1.1 : 0.9);
+        this.prism?.camera.zoom(e.deltaY > 0 ? 1.1 : 0.9);
     };
 
     private onContextMenu = (e: Event) => {
@@ -316,7 +255,7 @@ export class RenderView {
         if (this.pinching && e.touches.length >= 2) {
             const next = this.touchDistance(e);
             if (this.pinchDist > 0 && next > 0) {
-                this.engine?.camera.zoom(this.pinchDist / next);
+                this.prism?.camera.zoom(this.pinchDist / next);
             }
             this.pinchDist = next;
             return;
@@ -337,19 +276,8 @@ export class RenderView {
     };
 
     private onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 's' || e.key === 'S') this.downloadScreenshot();
-        else if (e.key === 'k' || e.key === 'K') this.toggleKeepRunning();
-        else if (e.key === 'd' || e.key === 'D') this.toggleDenoise();
+        if (e.key === 's' || e.key === 'S') void this.downloadScreenshot();
     };
-
-    /** 空间降噪开关：低 spp 时压噪声，高 spp 时反而会糊，随时可以关掉对比。 */
-    private toggleDenoise(): void {
-        const frame = this.engine?.frame;
-        if (!frame) return;
-        this.denoising = !this.denoising;
-        frame.setDenoise(this.denoising);
-        if (this.lastStats) this.renderHud(this.lastStats);
-    }
 
     private touchDistance(e: TouchEvent): number {
         const a = e.touches[0];

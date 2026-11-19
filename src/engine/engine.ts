@@ -1,5 +1,6 @@
 import type { Scene } from '../ir/scene';
 import { RenderContext } from './context';
+import type { RenderSurface } from './context';
 import { Background } from './background';
 import { Model } from './model/model';
 import { Camera } from './camera';
@@ -53,8 +54,16 @@ export async function createDevice(): Promise<GPUDevice> {
  * 它不是「场景」—— 场景是 Scene IR。这里只负责持有生命周期。
  */
 export class Engine {
-    public static async create(canvas: HTMLCanvasElement): Promise<Engine> {
+    public static async create(canvas: RenderSurface): Promise<Engine> {
         const device = await createDevice();
+        return new Engine(device, canvas);
+    }
+
+    /**
+     * 用已有的 device 装配引擎 —— Worker 在 init 时就把设备建好了，
+     * 画布后到，不能再申请第二个。
+     */
+    public static fromDevice(device: GPUDevice, canvas: RenderSurface): Engine {
         return new Engine(device, canvas);
     }
 
@@ -66,8 +75,10 @@ export class Engine {
     public readonly loop: RenderLoop;
     /** destroy() 之后为 true：设备已经还回去了，任何组件都不能再提交。 */
     public destroyed = false;
+    /** release() 之后为 true：渲染资源已经卸掉，只剩设备。 */
+    private released = false;
 
-    private constructor(device: GPUDevice, canvas: HTMLCanvasElement) {
+    private constructor(device: GPUDevice, canvas: RenderSurface) {
         this.context = new RenderContext(device, canvas);
         this.camera = new Camera(this.context);
         this.background = new Background(device);
@@ -89,14 +100,24 @@ export class Engine {
         this.camera.applyView(scene.camera);
     }
 
-    public destroy(): void {
-        if (this.destroyed) return;
-        this.destroyed = true;
+    /**
+     * 卸掉这一套渲染资源，但保留设备 —— Worker 换场景时用：引擎重建，
+     * 设备是 Worker 的，不能跟着死。
+     */
+    public release(): void {
+        if (this.released) return;
+        this.released = true;
         this.loop.stop();
         this.model.destroy();
         this.background.destroy();
         this.frame.destroy();
         this.camera.destroy();
+    }
+
+    public destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.release();
         this.context.device.destroy();
     }
 }

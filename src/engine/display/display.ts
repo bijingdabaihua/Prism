@@ -47,9 +47,22 @@ export class Display {
     public record(encoder: GPUCommandEncoder, view: GPUTextureView | null, version: number): void {
         const ctx = this.context.gpuContext();
         if (!ctx) return;
+        this.recordTo(encoder, view, version, ctx.getCurrentTexture().createView());
+    }
+
+    /**
+     * 同一套 ACES + 暗角 + 颗粒，画到指定视图 —— 拍照走这条，
+     * 输出到离屏纹理再读回，不依赖 canvas 的读回能力。
+     */
+    public recordTo(
+        encoder: GPUCommandEncoder,
+        view: GPUTextureView | null,
+        version: number,
+        target: GPUTextureView,
+    ): void {
         const bindGroup = this.bindGroupFor(view, version);
         if (!bindGroup) return;
-        this.draw(encoder, bindGroup, ctx.getCurrentTexture().createView());
+        this.draw(encoder, bindGroup, target);
     }
 
     private bindGroupFor(view: GPUTextureView | null, version: number): GPUBindGroup | null {

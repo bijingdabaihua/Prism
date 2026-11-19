@@ -13,4 +13,9 @@ export default defineConfig({
     // 输出目录在项目根之外（dist/app），vite 默认不敢清空，旧 chunk 会一直堆着
     emptyOutDir: true,
   },
+  // 渲染 Worker 和主线程共用 core / engine 模块，会拆出共享 chunk ——
+  // 只支持 ES 格式（默认的 iife 不能 code-split）
+  worker: {
+    format: 'es',
+  },
 });

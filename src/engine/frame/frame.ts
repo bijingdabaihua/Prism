@@ -8,6 +8,13 @@ import { Display } from '../display/display';
 import { Denoiser } from '../denoise/denoise';
 
 /** 给 HUD / 外部观察的一帧统计。 */
+/** 一张读回的画面：RGBA8，行间无 padding。 */
+export interface PixelBuffer {
+    width: number;
+    height: number;
+    data: Uint8ClampedArray<ArrayBuffer>;
+}
+
 export interface FrameStats {
     /** 已完成的整轮采样数（每个像素的样本数下界）。 */
     samples: number;
@@ -119,6 +126,84 @@ export class Frame {
         this.timer.afterSubmit();
 
         return true;
+    }
+
+    /**
+     * 读回当前画面（已色调映射的显示结果）。
+     *
+     * 不走 canvas 的 convertToBlob —— WebGPU canvas 的读回在部分环境里会失败。
+     * 显示 pass 画进一张临时纹理，copyTextureToBuffer 读回来，通道按格式翻成 RGBA。
+     * 采样和显示各提交一次，不改动累积状态。
+     */
+    public async readPixels(): Promise<PixelBuffer> {
+        const width = this.context.width();
+        const height = this.context.height();
+        if (!width || !height) throw new Error('还没有可拍下来的画面');
+        const device = this.context.device;
+        const format = this.context.format;
+        const texture = device.createTexture({
+            size: { width, height },
+            format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+            label: 'photo-target',
+        });
+        const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+        const buffer = device.createBuffer({
+            size: bytesPerRow * height,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            label: 'photo-readback',
+        });
+
+        try {
+            const encoder = device.createCommandEncoder();
+            let view: GPUTextureView | null = null;
+            if (this.denoiseOn) {
+                this.pathTracePass.recordGuides(encoder);
+                view = this.denoiser.record(
+                    encoder,
+                    this.pathTracePass.radianceView(),
+                    this.pathTracePass.guideView(),
+                );
+            }
+            this.display.recordTo(
+                encoder,
+                view ?? this.pathTracePass.radianceView(),
+                this.pathTracePass.radianceVersion,
+                texture.createView(),
+            );
+            encoder.copyTextureToBuffer(
+                { texture },
+                { buffer, bytesPerRow, rowsPerImage: height },
+                { width, height },
+            );
+            device.queue.submit([encoder.finish()]);
+
+            await buffer.mapAsync(GPUMapMode.READ);
+            const src = new Uint8Array(buffer.getMappedRange());
+            const data = new Uint8ClampedArray(width * height * 4);
+            const bgra = format === 'bgra8unorm';
+            for (let y = 0; y < height; y++) {
+                let s = y * bytesPerRow;
+                let o = y * width * 4;
+                for (let x = 0; x < width; x++, s += 4, o += 4) {
+                    if (bgra) {
+                        data[o] = src[s + 2]!;
+                        data[o + 1] = src[s + 1]!;
+                        data[o + 2] = src[s]!;
+                    } else {
+                        data[o] = src[s]!;
+                        data[o + 1] = src[s + 1]!;
+                        data[o + 2] = src[s + 2]!;
+                    }
+                    data[o + 3] = src[s + 3]!;
+                }
+            }
+            return { width, height, data };
+        } finally {
+            buffer.unmap();
+            buffer.destroy();
+            texture.destroy();
+        }
     }
 
     public destroy(): void {

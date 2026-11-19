@@ -1,16 +1,21 @@
-import type { WorkerRequest, WorkerResponse } from './protocol';
+import { RpcClient } from './rpc-client';
+import { PrismUnsupportedError } from './errors';
+import { RpcCamera } from './handles/camera';
+import { RpcBackground } from './handles/background';
+import { RpcModel } from './handles/model';
+import type { CameraHandle } from './handles/camera';
+import type { BackgroundHandle } from './handles/background';
+import type { ModelHandle } from './handles/model';
 
 /**
- * 对外唯一入口 —— 接口草案，场景与画布还没接进来。
+ * 门面：起 Worker、装配三个句柄、管生命周期。
  *
- * 实际渲染跑在 Worker 里，主线程拿到的只是 RPC 句柄；渲染器本身不需要
- * canvas，结果从 Worker 里出来。
+ * 实际渲染跑在 Worker 里 —— 一个实例一个 Worker、一个独立 GPUDevice，
+ * 主线程从头到尾不碰 GPU。实例只对外暴露 camera / background / model
+ * 三个只读句柄；各自的契约和主线程实现都在 handles/。
  *
- * 业务层只认识这一个类，实例对外只暴露 camera / background / model
- * 三个只读句柄。
- *
- * 现在 create 完成的是「起 Worker、把设备建好」这一段：句柄上的方法还是
- * 占位。确认接口之后再接 engine / config。
+ * 业务层只认识这一个类。画布和引擎还没搬进 Worker：机位命令现在只被收下，
+ * takePhoto 会明确拒绝。
  */
 export class Prism {
     /**
@@ -20,33 +25,64 @@ export class Prism {
      * 这一眼只说明「浏览器有这个 API」，不保证真能跑：requestAdapter() 在
      * Worker 里仍可能返回 null（驱动进黑名单、虚拟机、关了硬件加速），
      * 那种情况同样以 PrismUnsupportedError 拒绝 —— 消息由 Worker 报回来。
+     *
+     * 传了画布：`transferControlToOffscreen()` 把它交给 Worker，之后所有
+     * 绘制都在 Worker 里发生，主线程只量尺寸、发生指针事件。
+     * 不传画布：只有设备和资源（场景能装、环境图能换），但不出图 ——
+     * 适合预加载或后台实例。
      */
-    public static async create(): Promise<Prism> {
+    public static async create(canvas?: HTMLCanvasElement): Promise<Prism> {
         if (!navigator.gpu) {
             throw new PrismUnsupportedError('WebGPU is not available. Try Chrome 113+.');
         }
 
         const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+        const rpc = new RpcClient(worker);
         try {
-            await waitForReady(worker);
+            await withTimeout(
+                rpc.init(),
+                READY_TIMEOUT_MS,
+                `Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内就绪`,
+            );
+            if (canvas) {
+                const surface = canvas.transferControlToOffscreen();
+                await withTimeout(
+                    rpc.request<void>(
+                        (id) => ({ type: 'attachCanvas', id, canvas: surface }),
+                        [surface],
+                    ),
+                    READY_TIMEOUT_MS,
+                    `Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内接过画布`,
+                );
+            }
         } catch (err) {
             // 半途失败的 Worker 不能留着：它可能已经占着设备了
+            rpc.dispose();
             worker.terminate();
             throw err;
         }
-        return new Prism(worker);
+        return new Prism(worker, rpc);
     }
 
     /** 观察者：机位控制。 */
-    public declare readonly camera: CameraHandle;
-    /** 环境光照：目前只暴露就绪状态。 */
-    public declare readonly background: BackgroundHandle;
+    public readonly camera: CameraHandle;
+    /** 环境光照。 */
+    public readonly background: BackgroundHandle;
     /** 场景几何：已编译的模型。 */
-    public declare readonly model: ModelHandle;
+    public readonly model: ModelHandle;
 
+    private readonly rpc: RpcClient;
     private disposed = false;
 
-    private constructor(private readonly worker: Worker) {}
+    private constructor(
+        private readonly worker: Worker,
+        rpc: RpcClient,
+    ) {
+        this.rpc = rpc;
+        this.camera = new RpcCamera(rpc);
+        this.background = new RpcBackground(rpc);
+        this.model = new RpcModel(rpc);
+    }
 
     /**
      * 释放这个实例的 Worker 和 GPU 设备。
@@ -57,120 +93,27 @@ export class Prism {
     public dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
+        this.rpc.dispose();
         this.worker.terminate();
-    }
-}
-
-/** 这台机器跑不了 WebGPU —— 调用方据此走降级页，而不是错误态。 */
-export class PrismUnsupportedError extends Error {
-    constructor(message = 'WebGPU is not available in this browser') {
-        super(message);
-        this.name = 'PrismUnsupportedError';
     }
 }
 
 /** Worker 建设备的上限。requestAdapter 自身有 8 s 超时，这里再兜一层。 */
 const READY_TIMEOUT_MS = 15000;
 
-/**
- * 等 Worker 回报就绪。
- *
- * 三种结局：ready → 成功；unsupported → 转成 PrismUnsupportedError；
- * failed / 超时 / Worker 脚本本身出错 → 普通错误。
- */
-function waitForReady(worker: Worker): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const finish = (settle: () => void) => {
-            clearTimeout(timer);
-            worker.removeEventListener('message', onMessage);
-            worker.removeEventListener('error', onError);
-            settle();
-        };
-        const timer = setTimeout(
-            () => finish(() => reject(new Error(`Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内就绪`))),
-            READY_TIMEOUT_MS,
+/** 给一个 Promise 加超时；超时之后迟到的回执会被 RpcClient 忽略。 */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(message)), ms);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (err) => {
+                clearTimeout(timer);
+                reject(err);
+            },
         );
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-            const message = event.data;
-            if (message.type === 'ready') {
-                finish(resolve);
-            } else if (message.type === 'unsupported') {
-                finish(() => reject(new PrismUnsupportedError(message.message)));
-            } else if (message.type === 'failed') {
-                finish(() => reject(new Error(message.message)));
-            }
-        };
-        const onError = (event: ErrorEvent) => {
-            finish(() => reject(new Error(`Prism.create: Worker 出错：${event.message}`)));
-        };
-
-        worker.addEventListener('message', onMessage);
-        worker.addEventListener('error', onError);
-        worker.postMessage({ type: 'init' } satisfies WorkerRequest);
     });
-}
-
-/**
- * 观察模型：绕 target 的轨道相机。
- *
- * 这是本渲染器的机位语义，不是 ir/CameraView 的拷贝 —— 结构一样只是巧合，
- * 业务契约不跟着 IR 变。
- */
-export interface CameraSpec {
-    target: { x: number; y: number; z: number };
-    /** 相机到 target 的距离（米，轨道半径）。 */
-    distance: number;
-    /** 水平角，π/2 表示从 +z 方向看过来。 */
-    theta: number;
-    /** 俯仰角，π/2 是水平视线，越小相机越高。 */
-    phi: number;
-    /** 垂直视野角，弧度。 */
-    fovY: number;
-    /** 入射光瞳半径（米）。省略或 0 = 针孔。 */
-    apertureRadius?: number;
-    /** 对焦距离（米）。需要和 apertureRadius 一起给才生效。 */
-    focusDistance?: number;
-}
-
-export interface CameraHandle {
-    /** 直接指定机位。 */
-    set(spec: CameraSpec): void;
-    /** 回到场景自带的机位。 */
-    reset(): void;
-    /** 绕 target 旋转。 */
-    orbit(deltaTheta: number, deltaPhi: number): void;
-    /** 推拉：>1 拉远，<1 推近。 */
-    zoom(factor: number): void;
-    /** 平移 target（屏幕空间像素）。 */
-    pan(deltaX: number, deltaY: number): void;
-    /** 按当前机位渲染一张图，返回最终结果。 */
-    takePhoto(options?: PhotoOptions): Promise<Blob>;
-}
-
-export interface PhotoOptions {
-    /** 输出格式，默认 image/png。 */
-    type?: 'image/png' | 'image/jpeg' | 'image/webp';
-    /** 有损格式的质量，0~1。 */
-    quality?: number;
-}
-
-/** 业务层的场景标识，来自 config 里的 SCENES 清单。 */
-export type SceneKey = string;
-
-export interface BackgroundHandle {
-    /** 设置环境图（URL）。重复调用即换背景。 */
-    setImage(url: string): Promise<void>;
-    /** 环境图是否已经装好 —— 也是「场景就绪」的信号。 */
-    ready(): Promise<boolean>;
-}
-
-export interface ModelHandle {
-    /** 装载场景（按 key）。重复调用即换场景。 */
-    setScene(scene: SceneKey): Promise<void>;
-    /** 几何是否已经编译好（BVH / buffer 上传完成）。 */
-    ready(): Promise<boolean>;
-    /** 场景里的实例数。 */
-    instances(): Promise<number>;
-    /** 三角形总数。 */
-    triangles(): Promise<number>;
 }

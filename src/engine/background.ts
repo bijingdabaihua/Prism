@@ -16,12 +16,15 @@ import type { Image } from '../ir/image';
  * 过滤性是要单独申请的设备特性。半浮点的范围（65504）对 HDRI 绰绰有余，太阳
  * 也就几千。
  *
- * 一个 Engine 只装一个场景，所以 setImage() 只调用一次，纹理和 CDF 在这一
- * 次里直接建好 —— 没有「待上传」状态，也没有重建路径。
+ * setImage() 可以重复调用：每调一次换一张环境图（门面的 background.setImage
+ * 就是这么用的）。纹理和 CDF 在这一次里直接建好 —— 没有「待上传」状态。
  *
  * 没有「没有环境图」这个状态：Scene.env 是必填的，构造时也不预留占位图，
  * setImage 之前就是还没有。`hasEnvironment()` 同时是「整个场景已就绪」的
  * 信号 —— Engine.setScene 最后才调它。
+ *
+ * 换图之后 `version` 会变：PathTracePass 每帧对比它，变了就重建 bind group、
+ * 清零累积 —— 旧纹理已经被 destroy，不能再被任何在途的 bind group 引用。
  */
 export class Background {
     private envMapTex: GPUTexture | null = null;
@@ -29,6 +32,8 @@ export class Background {
     /** 亮度 CDF（打包布局见文件末尾的 buildEnvDistribution），供环境 NEE 使用。 */
     private envDistBuf: GPUBuffer | null = null;
     private readonly device: GPUDevice;
+    /** 每换一次图 +1。渲染管线据此重建 bind group、清零累积。 */
+    private versionCounter = 0;
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -36,14 +41,16 @@ export class Background {
 
     /** 编译环境图 —— 整个生命周期只调用一次。 */
     public setImage(image: Image): void {
-        if (this.envMapTex) throw new Error('Background: setImage 只能调用一次 —— 换场景请换 Engine');
         if (image.layout !== 'equirect') {
             throw new Error(`Unsupported environment layout: ${image.layout}`);
         }
         const { tex, view, dist } = this.build(image);
+        // 先把新的建好、再换掉旧的：构建失败时旧的环境光还能用。
+        this.release();
         this.envMapTex = tex;
         this.envMapTexView = view;
         this.envDistBuf = dist;
+        this.versionCounter++;
     }
 
     /**
@@ -54,6 +61,11 @@ export class Background {
      */
     public hasEnvironment(): boolean {
         return this.envMapTexView !== null;
+    }
+
+    /** 当前环境图的版本号 —— 变了就说明纹理 / CDF 已经换掉。 */
+    public get version(): number {
+        return this.versionCounter;
     }
 
     public envMapView(): GPUTextureView {
@@ -71,6 +83,11 @@ export class Background {
     }
 
     public destroy(): void {
+        this.release();
+    }
+
+    /** 放掉当前的纹理和 CDF，回到「还没有环境图」。 */
+    private release(): void {
         this.envMapTex?.destroy();
         this.envMapTexView = null;
         this.envDistBuf?.destroy();
