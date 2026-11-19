@@ -9,6 +9,7 @@ export type {
     SceneKey,
     CameraSpec,
     CameraHandle,
+    PhotoOptions,
     BackgroundHandle,
     ModelHandle,
 } from './prism';

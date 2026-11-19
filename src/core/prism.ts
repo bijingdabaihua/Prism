@@ -58,6 +58,15 @@ export interface CameraHandle {
     zoom(factor: number): void;
     /** 平移 target（屏幕空间像素）。 */
     pan(deltaX: number, deltaY: number): void;
+    /** 按当前机位渲染一张图，返回最终结果。 */
+    takePhoto(options?: PhotoOptions): Promise<Blob>;
+}
+
+export interface PhotoOptions {
+    /** 输出格式，默认 image/png。 */
+    type?: 'image/png' | 'image/jpeg' | 'image/webp';
+    /** 有损格式的质量，0~1。 */
+    quality?: number;
 }
 
 /** 业务层的场景标识，来自 config 里的 SCENES 清单。 */
