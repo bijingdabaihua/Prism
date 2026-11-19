@@ -13,8 +13,8 @@ const BROWSERS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 export class UnsupportedView {
-    private readonly card: SceneCard;
     private root: HTMLElement | null = null;
+    private readonly card: SceneCard;
 
     constructor(card: SceneCard) {
         this.card = card;

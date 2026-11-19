@@ -2,25 +2,14 @@ import type { Vec3 } from './types';
 import { normalize, cross, sub, dot } from './vec3';
 
 /**
- * 4×4 matrix stored in column-major order (Float32Array).
- * Column-major = elements accessed as m[col * 4 + row].
- * This matches WGSL's default matrix layout.
- *
- * Layout:
- *   c0r0  c0r1  c0r2  c0r3
- *   c1r0  c1r1  c1r2  c1r3
- *   c2r0  c2r1  c2r2  c2r3
- *   c3r0  c3r1  c3r2  c3r3
- *
- * Index: m[col*4 + row]
+ * 4×4 矩阵，列主序（Float32Array），元素按 m[col * 4 + row] 访问 ——
+ * 与 WGSL 的默认矩阵布局一致。
  */
 export class Mat4 {
-    /** Create from flat column-major Float32Array */
     public static from(data: Float32Array): Mat4 {
         return new Mat4(new Float32Array(data));
     }
 
-    /** Create a perspective projection matrix */
     public static perspective(fovY: number, aspect: number, near: number, far: number): Mat4 {
         const f = 1 / Math.tan(fovY / 2);
         const nf = 1 / (near - far);
@@ -46,7 +35,6 @@ export class Mat4 {
         );
     }
 
-    /** Create a look-at view matrix */
     public static lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
         const f = normalize(sub(target, eye));
         const s = normalize(cross(f, up));
@@ -74,9 +62,16 @@ export class Mat4 {
         );
     }
 
-    private constructor(public data: Float32Array) {}
+    private static identity(): Mat4 {
+        return new Mat4(new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
+    }
 
-    /** Multiply this * b. Returns a new matrix. */
+    public readonly data: Float32Array;
+
+    private constructor(data: Float32Array) {
+        this.data = data;
+    }
+
     public multiply(b: Mat4): Mat4 {
         const a = this.data;
         const d = b.data;
@@ -93,7 +88,6 @@ export class Mat4 {
         return new Mat4(out);
     }
 
-    /** Invert. Returns identity if matrix is singular. */
     public invert(): Mat4 {
         const m = this.data;
         const out = new Float32Array(16);
@@ -129,6 +123,7 @@ export class Mat4 {
         const b11 = a22 * a33 - a23 * a32;
 
         const det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+        // 奇异矩阵没有逆：退回单位阵，调用方拿到的画面是错的，但不至于整帧丢失
         if (Math.abs(det) < 1e-12) return Mat4.identity();
 
         const invDet = 1 / det;
@@ -152,13 +147,7 @@ export class Mat4 {
         return new Mat4(out);
     }
 
-    /** Get the raw Float32Array (column-major) */
     public raw(): Float32Array {
         return this.data;
-    }
-
-    /** Create an identity matrix */
-    private static identity(): Mat4 {
-        return new Mat4(new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
     }
 }

@@ -64,10 +64,10 @@ export class Engine {
     public readonly context: RenderContext;
     public readonly camera: Camera;
     public readonly background: Background;
-    public readonly model: Model;
-    public readonly loop: RenderLoop;
     /** release() 之后为 true：渲染资源已经卸掉，只剩设备。 */
     private released = false;
+    private readonly model: Model;
+    private readonly loop: RenderLoop;
 
     private constructor(device: GPUDevice, canvas: RenderSurface) {
         this.context = new RenderContext(device, canvas);

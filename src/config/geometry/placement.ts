@@ -1,8 +1,8 @@
-import type { Vec3 } from '../math/types';
-import type { Instance } from '../ir/instance';
-import { Mat4 } from '../math/mat4';
+import type { Vec3 } from '../../math/types';
+import type { Instance } from '../../ir/instance';
+import { Mat4 } from '../../math/mat4';
 
-export interface Placement {
+interface Placement {
     position: Vec3;
     /**
      * 绕 X 轴，弧度。先于 `rotationY` 应用。

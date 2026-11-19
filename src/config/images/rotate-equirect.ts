@@ -1,4 +1,4 @@
-import type { Image } from '../ir/image';
+import type { Image } from '../../ir/image';
 
 /**
  * 把环境图绕 +y 轴转 angle 弧度：等距柱状图沿经度整体平移。

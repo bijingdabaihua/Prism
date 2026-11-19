@@ -21,12 +21,12 @@ export class RenderContext {
     public readonly device: GPUDevice;
     /** 平台首选 canvas 格式，device 无关，构造时即可确定。 */
     public readonly format: GPUTextureFormat = navigator.gpu.getPreferredCanvasFormat();
-    private readonly canvasEl: RenderSurface;
-    private readonly offscreen: boolean;
     private ctx: GPUCanvasContext | null = null;
     private _width = 0;
     private _height = 0;
     private resizeListeners: Array<(width: number, height: number) => void> = [];
+    private readonly canvasEl: RenderSurface;
+    private readonly offscreen: boolean;
 
     constructor(device: GPUDevice, canvas: RenderSurface) {
         this.device = device;

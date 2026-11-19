@@ -31,9 +31,9 @@ export class Background {
     private envMapTexView: GPUTextureView | null = null;
     /** 亮度 CDF（打包布局见文件末尾的 buildEnvDistribution），供环境 NEE 使用。 */
     private envDistBuf: GPUBuffer | null = null;
-    private readonly device: GPUDevice;
     /** 每换一次图 +1。渲染管线据此重建 bind group、清零累积。 */
     private versionCounter = 0;
+    private readonly device: GPUDevice;
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -64,7 +64,7 @@ export class Background {
     }
 
     /** 当前环境图的版本号 —— 变了就说明纹理 / CDF 已经换掉。 */
-    public get version(): number {
+    public version(): number {
         return this.versionCounter;
     }
 

@@ -75,9 +75,8 @@ export class Prism {
     public readonly background: BackgroundHandle;
     /** 场景几何：已编译的模型。 */
     public readonly model: ModelHandle;
-
-    private readonly rpc: RpcClient;
     private disposed = false;
+    private readonly rpc: RpcClient;
 
     private constructor(
         private readonly worker: Worker,

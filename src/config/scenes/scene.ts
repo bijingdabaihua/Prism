@@ -1,12 +1,12 @@
-import type { CameraView } from '../ir/camera';
-import type { Image } from '../ir/image';
-import type { Scene } from '../ir/scene';
-import { Instance } from '../ir/instance';
-import { MeshBuilder } from './mesh-builder';
-import { placeInstances } from './placement';
-import { defaultPBRMaterial } from '../ir/material';
+import type { CameraView } from '../../ir/camera';
+import type { Image } from '../../ir/image';
+import type { Scene } from '../../ir/scene';
+import { Instance } from '../../ir/instance';
+import { MeshBuilder } from '../geometry/mesh-builder';
+import { placeInstances } from '../geometry/placement';
+import { defaultPBRMaterial } from '../../ir/material';
 
-export interface SceneOptions {
+interface SceneOptions {
     /** 省略或空数组 → 放一个 1 m 的灰盒子当占位。 */
     instances?: Instance[];
     /** 省略 → 中灰的渐变天光。 */

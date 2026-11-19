@@ -1,5 +1,3 @@
-// Basic types
-
 export interface Vec3 {
     x: number;
     y: number;

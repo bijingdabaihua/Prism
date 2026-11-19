@@ -167,13 +167,11 @@ fn path_trace(ray: Ray, seed: u32, dim: ptr<function, u32>) -> vec3<f32> {
   return L;
 }
 
-// ---------------------------------------------------------------------------
 // Progressive accumulation
 //
 // 部分采样：每帧只写顺序表里连续的一段（dispatch_count 个像素），其余像素
 // 由 CPU 侧每帧的纹理拷贝原样保留。所以「这个像素采过几次」不能再用帧号，
 // 而是由它在顺序表里的位置决定 —— 见 main。
-// ---------------------------------------------------------------------------
 fn accumulate(coordinate: vec2<i32>, radiance: vec3<f32>, previous_count: u32) {
   let prev = textureLoad(previous_accumulation_texture, coordinate, 0).rgb;
   let count = f32(previous_count);

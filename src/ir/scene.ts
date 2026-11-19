@@ -7,7 +7,7 @@ import type { Instance } from './instance';
  *
  * 描述「世界里有什么 + 从哪儿看」：几何、唯一的光源、机位。不含任何
  * 「怎么渲染」的信息 —— 采样数、色调映射都不在这里。
- * 怎么造出 Scene 在 config/scene.ts。
+ * 怎么造出 Scene 在 config/scenes/scene.ts。
  */
 export interface Scene {
     /** 世界里的物体。空数组 = 什么都没有，不是「不提供」。 */

@@ -1,8 +1,8 @@
-import type { Image } from '../ir/image';
-import type { PBRMaterial } from '../ir/material';
-import { defaultPBRMaterial } from '../ir/material';
-import { loadTexture } from './load-texture';
-import { loadImage } from './load-image';
+import type { Image } from '../../ir/image';
+import type { PBRMaterial } from '../../ir/material';
+import { defaultPBRMaterial } from '../../ir/material';
+import { loadTexture } from '../images/load-texture';
+import { loadImage } from '../images/load-image';
 
 /**
  * .blend 材质导入器：文件 → PBRMaterial。
@@ -95,6 +95,7 @@ class BlendFile {
     private readonly byOld = new Map<bigint, Block>();
     /** ID 下标 → (地址 → 块)，DATA 指针只在所属 ID 内可信。 */
     private readonly byOwner = new Map<number, Map<bigint, Block>>();
+
 
     constructor(buffer: ArrayBuffer) {
         this.bytes = new Uint8Array(buffer);
@@ -395,18 +396,18 @@ export async function loadBlendMaterial(url: string, meters?: number): Promise<P
     if (metallic !== undefined) mat.metallic = metallic;
     if (roughness !== undefined) mat.roughness = roughness;
 
-    const baseColorTex = await tex(blend, baseUrl, surface, 'Base Color');
+    const baseColorTex = tex(blend, baseUrl, surface, 'Base Color');
     if (baseColorTex) mat.baseColorTexture = await loadTexture(baseColorTex.path, 'albedo', meters);
 
     // Roughness 在 Blender 里是 float 插槽，接一张彩色图时按灰度取。我们的
     // roughness 通道读 .r，灰度图三通道同值，等价。
-    const roughnessTex = await tex(blend, baseUrl, surface, 'Roughness');
+    const roughnessTex = tex(blend, baseUrl, surface, 'Roughness');
     if (roughnessTex) {
         mat.roughnessTexture = await loadTexture(roughnessTex.path, 'roughness', meters);
         mat.roughness = 1;
     }
 
-    const normalTex = await tex(blend, baseUrl, surface, 'Normal');
+    const normalTex = tex(blend, baseUrl, surface, 'Normal');
     if (normalTex) {
         mat.normalTexture = await loadTexture(normalTex.path, 'normal', meters);
         mat.normalScale = normalTex.strength ?? 1;
@@ -458,19 +459,16 @@ function socketOf(
 }
 
 /** 顺着 NormalMap 往下找到贴图，顺手带上它的强度。 */
-async function tex(
-    blend: BlendFile,
-    baseUrl: string,
-    node: Block,
-    socketName: string,
-): Promise<TexImage | undefined> {
+function tex(blend: BlendFile, baseUrl: string, node: Block, socketName: string): TexImage | undefined {
     let source = upstream(blend, node, socketName);
     let strength: number | undefined;
     if (source && (blend.read(source, 'idname') as string) === 'ShaderNodeNormalMap') {
         strength = scalar(blend, source, 'Strength');
         source = upstream(blend, source, 'Color');
     }
-    return source ? imageOf(blend, baseUrl, source) : undefined;
+    if (!source) return undefined;
+    const image = imageOf(blend, baseUrl, source);
+    return image ? { ...image, strength } : undefined;
 }
 
 /** 贴图节点 → 文件路径 + 色彩空间。中间夹的 Mapping / Reroute 必须是恒等变换。 */

@@ -4,11 +4,9 @@
 // TLAS leaf nodes encode -(instanceID + 1)
 // BLAS leaf nodes encode -(triangleIndex + 1) (absolute in merged triangle buffer)
 
-// ---------------------------------------------------------------------------
 // traverse_blas — ray must be in LOCAL space of the instance.
 // blas_node_offset: float offset in nodes where this mesh's BVH starts.
 // Triangle / vertex indices are baked to absolute merged-buffer indices.
-// ---------------------------------------------------------------------------
 fn traverse_blas(ray: Ray, blas_node_offset: u32) -> BVHResult {
   var node_base: u32 = blas_node_offset;
   var t_far = 1e10;
@@ -54,9 +52,7 @@ fn traverse_blas(ray: Ray, blas_node_offset: u32) -> BVHResult {
   return BVHResult(hit_t, hit_u, hit_v, hit_triangle, 0u);
 }
 
-// ---------------------------------------------------------------------------
 // intersect_scene — TLAS + BLAS two-level traversal with AABB culling
-// ---------------------------------------------------------------------------
 fn intersect_scene(ray: Ray) -> BVHResult {
   var tlas_stack = array<u32, 64>();
   var tlas_sp: u32 = 0u;

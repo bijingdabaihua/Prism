@@ -1,10 +1,10 @@
-import type { Vec3 } from '../math/types';
-import type { PBRMaterial } from '../ir/material';
-import { Mesh } from '../ir/mesh';
-import { sub, dot, cross, normalize } from '../math/vec3';
+import type { Vec3 } from '../../math/types';
+import type { PBRMaterial } from '../../ir/material';
+import { Mesh } from '../../ir/mesh';
+import { sub, dot, cross, normalize } from '../../math/vec3';
 
 /** 贴图坐标（米）：顶点的 u/v = 到原点的位移在这两根轴上的投影。 */
-export interface UvProjection {
+interface UvProjection {
     origin: Vec3;
     /** 单位向量：贴图的 u 方向 */
     uAxis: Vec3;

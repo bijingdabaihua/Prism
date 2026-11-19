@@ -1,5 +1,5 @@
-import type { Image } from '../ir/image';
-import { srgbToLinear } from '../math/color';
+import type { Image } from '../../ir/image';
+import { srgbToLinear } from '../../math/color';
 
 /**
  * 图像导入器：文件 → Image IR。
@@ -11,7 +11,7 @@ import { srgbToLinear } from '../math/color';
  * 渲染层一行不动。
  */
 
-export interface ImageOptions {
+interface ImageOptions {
     /**
      * 位图是否按 sRGB 解码成线性。颜色贴图为 true（默认）；
      * 法线、粗糙度这类**数据贴图**必须为 false —— 它们的数值不是颜色，
@@ -49,12 +49,12 @@ function sniff(buf: ArrayBuffer): 'exr' | 'hdr' | 'bitmap' {
     return 'bitmap';
 }
 
-export async function decodeImage(buf: ArrayBuffer, options?: ImageOptions): Promise<Image> {
+async function decodeImage(buf: ArrayBuffer, options?: ImageOptions): Promise<Image> {
     switch (sniff(buf)) {
         case 'exr':
-            return decodeEXR(buf);
+            return decodeExr(buf);
         case 'hdr':
-            return decodeHDR(buf);
+            return decodeHdr(buf);
         default:
             return decodeBitmap(buf, options?.srgb ?? true);
     }
@@ -62,7 +62,7 @@ export async function decodeImage(buf: ArrayBuffer, options?: ImageOptions): Pro
 
 // OpenEXR —— 用 three 的解码器，约定输出 Float32 RGBA
 
-async function decodeEXR(buf: ArrayBuffer): Promise<Image> {
+async function decodeExr(buf: ArrayBuffer): Promise<Image> {
     const [{ EXRLoader }, { FloatType }] = await Promise.all([
         import('three/examples/jsm/loaders/EXRLoader.js'),
         import('three'),
@@ -97,7 +97,7 @@ async function decodeEXR(buf: ArrayBuffer): Promise<Image> {
 
 // Radiance HDR (.hdr) —— RGBE / 新式扫描线 RLE
 
-function decodeHDR(buf: ArrayBuffer): Image {
+function decodeHdr(buf: ArrayBuffer): Image {
     const bytes = new Uint8Array(buf);
     let pos = 0;
 

@@ -137,7 +137,7 @@ function sampleDisplacement(
 /**
  * Mesh IR：几何 + 材质引用，不含任何 GPU 或加速结构。
  *
- * BLAS 是派生数据（buildMeshBVH），属于 compile 层，不放进 IR。
+ * BLAS 是派生数据（buildMeshBvh），属于 compile 层，不放进 IR。
  *
  * 唯一的例外是 `evolve()` —— 它把材质上的位移贴图烘成真几何。位移贴图是
  * 材质的运行时属性（导入器 / 场景作者给），而「一块几何长什么样」必须在这里
@@ -154,7 +154,6 @@ export class Mesh {
     public readonly materials: readonly PBRMaterial[];
     /** 局部空间 AABB */
     public readonly bounds: AABB;
-
     private evolved?: Mesh;
 
     constructor(

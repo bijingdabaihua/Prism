@@ -3,7 +3,7 @@ import type { Model } from '../model/model';
 import type { Background } from '../background';
 import type { RenderContext } from '../context';
 import { GpuTimer } from './gpu-timer';
-import { PathTracePass } from './path-tracing/pathTrace';
+import { PathTracePass } from './path-tracing/path-trace-pass';
 import { Display } from '../display/display';
 
 /**
@@ -14,13 +14,13 @@ import { Display } from '../display/display';
  * 以及在两端打 GPU 时间戳。
  */
 export class Frame {
-    public readonly context: RenderContext;
+    /** 已提交的帧数 —— 相机靠它判断画布上有没有新画面可推。 */
+    private submittedFrames = 0;
+    private readonly context: RenderContext;
     private readonly camera: Camera;
     private readonly pathTracePass: PathTracePass;
     private readonly display: Display;
     private readonly timer: GpuTimer;
-    /** 已提交的帧数 —— 相机靠它判断画布上有没有新画面可推。 */
-    private submittedFrames = 0;
 
     constructor(context: RenderContext, model: Model, camera: Camera, background: Background) {
         this.context = context;
@@ -33,7 +33,7 @@ export class Frame {
     }
 
     /** 已提交的帧数。 */
-    public get frameCount(): number {
+    public frameCount(): number {
         return this.submittedFrames;
     }
 
@@ -61,16 +61,16 @@ export class Frame {
     }
 
     /** 上一帧是否重开了累积 —— 渲染循环据此在「响应 / 吞吐」两档预算间切换。 */
-    public get restarted(): boolean {
-        return this.pathTracePass.restarted;
+    public restarted(): boolean {
+        return this.pathTracePass.restarted();
     }
 
     /**
      * 这一帧还能不能提交。在途帧到上限就先跳过：队列越积越深会让测量断供，
-     * 采样量冻住不动（见 GpuTimer.canSubmit）。
+     * 采样量冻住不动（见 GpuTimer.canSubmit()）。
      */
-    public get readyForNextFrame(): boolean {
-        return this.timer.canSubmit;
+    public readyForNextFrame(): boolean {
+        return this.timer.canSubmit();
     }
 
     /**
@@ -88,8 +88,8 @@ export class Frame {
         this.pathTracePass.record(encoder, cameraChanged);
         this.timer.afterSampling(encoder);
 
-        this.display.record(encoder, this.pathTracePass.radianceView(), this.pathTracePass.radianceVersion);
-        this.timer.end(encoder, this.pathTracePass.lastDispatch);
+        this.display.record(encoder, this.pathTracePass.radianceView(), this.pathTracePass.radianceVersion());
+        this.timer.end(encoder, this.pathTracePass.lastDispatch());
 
         this.context.device.queue.submit([encoder.finish()]);
         this.timer.afterSubmit();

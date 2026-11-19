@@ -37,9 +37,9 @@ const KEEPALIVE_RETRY_MS = 16;
  *
  * 相机把渲染器藏在内部，只交出这份调度接口 —— 循环不知道 Frame / 相机的存在。
  */
-export interface FrameSource {
-    readonly readyForNextFrame: boolean;
-    readonly restarted: boolean;
+interface FrameSource {
+    readyForNextFrame(): boolean;
+    restarted(): boolean;
     renderFrame(): boolean;
     setTargetFrameMs(ms: number): void;
 }
@@ -50,7 +50,7 @@ export interface FrameSource {
  * 只负责「什么时候再渲染一帧」和「每帧的 GPU 预算」，不知道场景、相机、材质的存在。
  */
 export class RenderLoop {
-    public running = false;
+    private running = false;
     private animFrameId: number | null = null;
     /** boot/stop 代际号：防止 stop 之后旧的 rAF 链继续跑。 */
     private generation = 0;
@@ -68,7 +68,17 @@ export class RenderLoop {
         this.boot();
     }
 
-    public boot(): void {
+    public stop(): void {
+        this.running = false;
+        this.generation++;
+        if (this.animFrameId !== null) {
+            cancelAnimationFrame(this.animFrameId);
+            this.animFrameId = null;
+        }
+        this.setKeepRunning(false);
+    }
+
+    private boot(): void {
         if (this.running) return;
         this.running = true;
         const generation = ++this.generation;
@@ -83,23 +93,13 @@ export class RenderLoop {
         });
     }
 
-    public stop(): void {
-        this.running = false;
-        this.generation++;
-        if (this.animFrameId !== null) {
-            cancelAnimationFrame(this.animFrameId);
-            this.animFrameId = null;
-        }
-        this.setKeepRunning(false);
-    }
-
     /**
      * 后台保活开关：标签页不可见、rAF 停发时，用定时器继续喂 GPU。
      *
      * 只换驱动方式，不换渲染内容 —— 采样预算、累积游标都由 PathTracePass 管，
      * 后台只是把每帧预算放到接近一秒。
      */
-    public setKeepRunning(on: boolean): void {
+    private setKeepRunning(on: boolean): void {
         if (on === this.keepRunning) return;
         this.keepRunning = on;
         if (this.keepAliveId !== null) {
@@ -159,7 +159,7 @@ export class RenderLoop {
 
         // 隐藏页的定时器最少一秒才来一次，预算必须一次给足。
         this.frame.setTargetFrameMs(BACKGROUND_BUDGET_MS);
-        if (this.frame.readyForNextFrame && this.frame.renderFrame()) {
+        if (this.frame.readyForNextFrame() && this.frame.renderFrame()) {
             this.lastSubmit = performance.now();
         }
         this.keepAliveId = setTimeout(() => this.keepAlive(), KEEPALIVE_RETRY_MS);
@@ -172,13 +172,13 @@ export class RenderLoop {
         // 无条件每帧提交会让提交速度超过 GPU，队列越积越深，读回槽位占满之后
         // 采样量就冻住不动了（表现为卡在 MIN_DISPATCH 上）。跳过 rAF 不算亏——
         // 这一帧本来就来不及画。
-        if (this.frame.readyForNextFrame && this.frame.renderFrame()) {
+        if (this.frame.readyForNextFrame() && this.frame.renderFrame()) {
             // 下一帧的预算：本帧重开过累积（画面正在被改动）就用响应档，
             // 否则画面只是在累积，用吞吐档。预算下发晚一帧正好 —— 本帧的
             // 采样量在提交前就定了，这里改的是下一帧。
             // 后台保活把预算抬到 0.9 秒的地方（见 keepAlive）也靠这里拉回来。
             this.frame.setTargetFrameMs(
-                this.refreshMs * (this.frame.restarted ? RESPONSIVE_RATIO : ACCUMULATING_RATIO),
+                this.refreshMs * (this.frame.restarted() ? RESPONSIVE_RATIO : ACCUMULATING_RATIO),
             );
 
             this.lastSubmit = performance.now();

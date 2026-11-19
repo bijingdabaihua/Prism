@@ -6,8 +6,8 @@
  * `camera.listen()` 以 ImageBitmap 推回主线程 —— 每间隔最多一帧。
  */
 import { createDevice, Engine, WebGPUUnavailableError } from '../engine/engine';
-import { loadImage } from '../config/load-image';
-import { SCENES } from '../config/config';
+import { loadImage } from '../config/images/load-image';
+import { SCENES } from '../config/manifest';
 import type { Scene } from '../ir/scene';
 import type { CameraView } from '../ir/camera';
 import type { CameraCommand, WorkerRequest, WorkerResponse } from './protocol';
@@ -108,7 +108,7 @@ function makeEngine(): Engine {
  * （`/env/xxx.exr`）或绝对 URL。原图原样使用，不做 rotateEquirect：
  * 太阳方位由资产本身决定。
  *
- * 引擎已经在跑时也可以换：Background.version 变化会让 PathTracePass 在
+ * 引擎已经在跑时也可以换：Background.version() 变化会让 PathTracePass 在
  * 下一帧重建 bind group 并清零累积。
  */
 async function handleSetImage(id: number, url: string): Promise<void> {
@@ -137,7 +137,7 @@ async function handleSetScene(id: number, key: string): Promise<void> {
             throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
         }
 
-        const scene = await entry.scene.load();
+        const scene = await entry.load();
         const next = makeEngine();
         try {
             next.setScene(scene);

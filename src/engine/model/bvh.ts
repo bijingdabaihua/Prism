@@ -1,12 +1,12 @@
 import type { AABB, Vec3 } from '../../math/types';
 import type { Mesh } from '../../ir/mesh';
 
-class BVHNode {
+class BvhNode {
     public bounds: AABB;
     public left = 0;
     public right = 0;
-    public leftChild?: BVHNode;
-    public rightChild?: BVHNode;
+    public leftChild?: BvhNode;
+    public rightChild?: BvhNode;
     constructor(bounds: AABB) {
         this.bounds = bounds;
     }
@@ -19,7 +19,7 @@ interface ItemData<T> {
     centroid: Vec3;
 }
 
-export function buildBVH<T>(items: readonly T[], getBounds: (item: T) => AABB): Float32Array {
+export function buildBvh<T>(items: readonly T[], getBounds: (item: T) => AABB): Float32Array {
     if (items.length === 0) return new Float32Array(0);
     const itemData: ItemData<T>[] = items.map((item, i) => {
         const b = getBounds(item);
@@ -59,23 +59,23 @@ const AXES = ['x', 'y', 'z'] as const;
  * 叶子最多两个图元（节点格式决定的，两个槽各指一个图元），所以这里只
  * 决定「怎么切」，「要不要切」没有余地。
  */
-function buildNode<T>(items: ItemData<T>[], depth: number): BVHNode {
+function buildNode<T>(items: ItemData<T>[], depth: number): BvhNode {
     const count = items.length;
     if (count <= 2) return createLeaf(items);
 
-    let split: SAHSplit | null = null;
-    if (depth < SAH_MAX_DEPTH) split = findSAHSplit(items);
+    let split: SahSplit | null = null;
+    if (depth < SAH_MAX_DEPTH) split = findSahSplit(items);
     const [left, right] = split ? partitionByBin(items, split) : medianPartition(items);
 
     const lChild = buildNode(left, depth + 1);
     const rChild = buildNode(right, depth + 1);
-    const node = new BVHNode(mergeBounds(lChild.bounds, rChild.bounds));
+    const node = new BvhNode(mergeBounds(lChild.bounds, rChild.bounds));
     node.leftChild = lChild;
     node.rightChild = rChild;
     return node;
 }
 
-interface SAHSplit {
+interface SahSplit {
     /** 每个图元落在哪个桶（沿选中轴）。 */
     bins: Uint8Array;
     /** 左半 = 桶号 ≤ 它的所有图元。 */
@@ -83,7 +83,7 @@ interface SAHSplit {
     cost: number;
 }
 
-function findSAHSplit<T>(items: ItemData<T>[]): SAHSplit | null {
+function findSahSplit<T>(items: ItemData<T>[]): SahSplit | null {
     const n = items.length;
     const cmin = { x: Infinity, y: Infinity, z: Infinity };
     const cmax = { x: -Infinity, y: -Infinity, z: -Infinity };
@@ -96,7 +96,7 @@ function findSAHSplit<T>(items: ItemData<T>[]): SAHSplit | null {
         if (it.centroid.z > cmax.z) cmax.z = it.centroid.z;
     }
 
-    let best: SAHSplit | null = null;
+    let best: SahSplit | null = null;
     for (const axis of AXES) {
         const lo = cmin[axis];
         const extent = cmax[axis] - lo;
@@ -148,7 +148,7 @@ function findSAHSplit<T>(items: ItemData<T>[]): SAHSplit | null {
 }
 
 /** 按桶计数排序后对半切开 —— O(n)，比重新排序快，也保证同桶图元不跨左右。 */
-function partitionByBin<T>(items: ItemData<T>[], split: SAHSplit): [ItemData<T>[], ItemData<T>[]] {
+function partitionByBin<T>(items: ItemData<T>[], split: SahSplit): [ItemData<T>[], ItemData<T>[]] {
     const start = new Uint32Array(SAH_BINS + 1);
     for (const b of split.bins) start[b + 1]!++;
     for (let i = 0; i < SAH_BINS; i++) start[i + 1]! += start[i]!;
@@ -197,8 +197,8 @@ function area(b: AABB): number {
     return dx * dy + dy * dz + dz * dx;
 }
 
-function createLeaf<T>(items: ItemData<T>[]): BVHNode {
-    const node = new BVHNode(mergeAllBounds(items));
+function createLeaf<T>(items: ItemData<T>[]): BvhNode {
+    const node = new BvhNode(mergeAllBounds(items));
     for (let i = 0; i < items.length; i++) {
         const slot = i === 0 ? 'left' : ('right' as const);
         node[slot] = -(items[i].index + 1);
@@ -207,9 +207,9 @@ function createLeaf<T>(items: ItemData<T>[]): BVHNode {
 }
 
 const NODE_STRIDE = 8;
-function flatten(root: BVHNode): Float32Array {
+function flatten(root: BvhNode): Float32Array {
     const nodes: number[] = [];
-    function walk(node: BVHNode): number {
+    function walk(node: BvhNode): number {
         const base = nodes.length;
         for (let i = 0; i < NODE_STRIDE; i++) nodes.push(0);
         if (node.leftChild) nodes[base + 6] = walk(node.leftChild) * NODE_STRIDE + 1;
@@ -260,21 +260,21 @@ const blasCache = new WeakMap<Mesh, Float32Array>();
  * 按 mesh 缓存的 BLAS：同一个 mesh 的多个 instance 共享同一棵树。
  * 重建场景时 mesh 对象不变，缓存命中，不用重算。
  */
-export function meshBLAS(mesh: Mesh): Float32Array {
+export function meshBlas(mesh: Mesh): Float32Array {
     let b = blasCache.get(mesh);
     if (!b) {
-        b = buildMeshBVH(mesh);
+        b = buildMeshBvh(mesh);
         blasCache.set(mesh, b);
     }
     return b;
 }
 
-export function buildMeshBVH(mesh: Mesh): Float32Array {
+function buildMeshBvh(mesh: Mesh): Float32Array {
     const vd = mesh.vertexData;
     const tri = mesh.triangleData;
     const triCount = tri.length / 4;
     const items = Array.from({ length: triCount }, (_, t) => t);
-    return buildBVH(items, (t: number) => {
+    return buildBvh(items, (t: number) => {
         const off = t * 4;
         let mnX = Infinity,
             mnY = Infinity,

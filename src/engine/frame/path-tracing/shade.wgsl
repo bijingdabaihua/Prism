@@ -1,13 +1,11 @@
 // Shading: PBR material with environment reflection + material texture sampling
 
-// ---------------------------------------------------------------------------
 // LDS — stateless low-discrepancy sampler via PCG-hashed (seed, sample, dim).
 //
 // Each (sample, dim) pair produces a deterministic pseudo-random value; the
 // seed varies per pixel.  Multiplication by large primes preserves all bits
 // unlike << which truncates; the Wang finalizer provides high-quality
 // avalanche mixing.
-// ---------------------------------------------------------------------------
 
 fn lds(seed: u32, sample: u32, dim: u32) -> f32 {
   var v = seed;
@@ -26,9 +24,7 @@ fn lds2(seed: u32, sample: u32, dim: u32) -> vec2<f32> {
   return vec2(lds(seed, sample, dim), lds(seed, sample, dim + 1u));
 }
 
-// ---------------------------------------------------------------------------
 // SurfaceInfo — material data at a hit point, used by bounce loop
-// ---------------------------------------------------------------------------
 
 struct SurfaceInfo {
   position: vec3<f32>,
@@ -46,9 +42,7 @@ struct SurfaceInfo {
   hit: bool,
 }
 
-// ---------------------------------------------------------------------------
 // Evaluate material at a hit point — no lighting, used by bounce loop
-// ---------------------------------------------------------------------------
 
 // Resolve the GPU material slot for a triangle: absolute material index baked
 // into triangles[*][3] at merge time.
@@ -183,9 +177,7 @@ fn compute_surface(ray: Ray, hit: BVHResult) -> SurfaceInfo {
   );
 }
 
-// ---------------------------------------------------------------------------
 // TBN — build orthonormal basis from a unit normal
-// ---------------------------------------------------------------------------
 
 struct TBN { u: vec3<f32>, v: vec3<f32>, w: vec3<f32> }
 
@@ -198,9 +190,7 @@ fn build_tbn(n: vec3<f32>) -> TBN {
   return TBN(u, v, w);
 }
 
-// ---------------------------------------------------------------------------
 // sample_hemisphere_cosine — cosine-weighted direction in hemisphere around n
-// ---------------------------------------------------------------------------
 
 fn sample_hemisphere_cosine(n: vec3<f32>, r1: f32, r2: f32) -> vec3<f32> {
   // Validate n: if n is NaN or zero, build_tbn will break — fall back to +Y
@@ -215,7 +205,6 @@ fn sample_hemisphere_cosine(n: vec3<f32>, r1: f32, r2: f32) -> vec3<f32> {
   return normalize(dir);
 }
 
-// ---------------------------------------------------------------------------
 // BSDF 采样：漫反射瓣（Lambert）+ 镜面瓣（GGX）的混合
 //
 // 采样时按 specular_probability 二选一；返回的 pdf 必须是**混合**密度
@@ -224,7 +213,6 @@ fn sample_hemisphere_cosine(n: vec3<f32>, r1: f32, r2: f32) -> vec3<f32> {
 //
 // 采样和求值共用 evaluate_bsdf，所以两者的 pdf 不会各算各的。
 // 以前采样是纯余弦、求值是 GGX 混合，两边对不上，MIS 权重加起来不等于 1。
-// ---------------------------------------------------------------------------
 
 struct BSDFSample {
   wo: vec3<f32>,
@@ -304,10 +292,8 @@ fn sample_bsdf(surf: SurfaceInfo, r1: f32, r2: f32, r3: f32) -> BSDFSample {
   return BSDFSample(wo, val.f, val.pdf, specular);
 }
 
-// ---------------------------------------------------------------------------
 // Evaluvation — given wi (toward surface), wo (away from surface),
 // compute f(wi, wo) and pdf(wi→wo) for explicit light sampling / MIS.
-// ---------------------------------------------------------------------------
 
 struct BSDFResult {
   f: vec3<f32>,
@@ -359,24 +345,19 @@ fn evaluate_bsdf(wi: vec3<f32>, wo: vec3<f32>, n: vec3<f32>, metallic: f32, roug
   );
 }
 
-// ---------------------------------------------------------------------------
 // 阴影射线的法线偏移。要压过求交的 epsilon（1e-6）以避免自相交，又要远小于
 // 场景里最小的「面到面」间隙 —— 取 0.1 mm。
-// ---------------------------------------------------------------------------
 
 const SHADOW_EPSILON = 1e-4;
 
-// ---------------------------------------------------------------------------
 // MIS power heuristic — beta=2: the estimator with higher PDF dominates.
 // pdf_a = PDF of the estimator being weighted, pdf_b = competing PDF.
-// ---------------------------------------------------------------------------
 
 fn mis_weight(pdf_a: f32, pdf_b: f32) -> f32 {
   let a2 = pdf_a * pdf_a;
   return a2 / max(a2 + pdf_b * pdf_b, 1e-12);
 }
 
-// ---------------------------------------------------------------------------
 // NEE: 环境光采样
 //
 // 环境是无穷远的发光体，没有「点」，只有方向：按亮度 CDF 采一个方向，
@@ -385,7 +366,6 @@ fn mis_weight(pdf_a: f32, pdf_b: f32) -> f32 {
 // 没有这一段时，太阳只能靠漫反射余弦采样「碰巧」命中，偶尔命中就会
 // 产生被 1/pdf 放大的萤火虫。有了 NEE，太阳方向每帧都被直接采到，
 // BSDF 一侧偶尔命中的样本再被 MIS 压低，萤火虫消失。
-// ---------------------------------------------------------------------------
 
 fn direct_environment(surf: SurfaceInfo, seed: u32, dim: ptr<function, u32>) -> vec3<f32> {
   let r1 = lds(seed, u.frame_index, *dim); *dim += 1u;
@@ -413,9 +393,7 @@ fn direct_environment(surf: SurfaceInfo, seed: u32, dim: ptr<function, u32>) -> 
   return mis_w * bsdf_val.f * radiance * cos_surf / max(sample.pdf, 1e-12);
 }
 
-// ---------------------------------------------------------------------------
 // Environment / atlas samplers (used by the bounce loop)
-// ---------------------------------------------------------------------------
 
 fn environment_uv(direction: vec3<f32>) -> vec2<f32> {
   let phi = atan2(direction.z, direction.x);
@@ -456,7 +434,6 @@ fn env_radiance_rough(direction: vec3<f32>, roughness: f32) -> vec3<f32> {
   return textureSampleLevel(environment_texture, environment_sampler, environment_uv(direction), lod).rgb;
 }
 
-// ---------------------------------------------------------------------------
 // 环境重要性采样
 //
 // 环境图每像素权重 = 亮度 × sinθ（行内归一化），边缘 CDF 再按行权重归一化。
@@ -465,7 +442,6 @@ fn env_radiance_rough(direction: vec3<f32>, roughness: f32) -> vec3<f32> {
 // 立体角换算：等距柱状的 (u,v) → 立体角雅可比是 2π²·sinθ（u 覆盖 2π、v 覆盖 π），
 // 所以 pdf_ω = p_row · p_col · w·h / (2π² · sinθ)。
 // 采样和 pdf 用同一个公式，MIS 权重才自洽。
-// ---------------------------------------------------------------------------
 
 struct EnvLightSample {
   direction: vec3<f32>,

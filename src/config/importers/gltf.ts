@@ -1,9 +1,9 @@
-import type { PBRMaterial, TextureKind } from '../ir/material';
-import type { Image } from '../ir/image';
-import { Mesh } from '../ir/mesh';
-import { defaultPBRMaterial } from '../ir/material';
-import { Instance } from '../ir/instance';
-import { loadTexture } from './load-texture';
+import type { PBRMaterial, TextureKind } from '../../ir/material';
+import type { Image } from '../../ir/image';
+import { Mesh } from '../../ir/mesh';
+import { defaultPBRMaterial } from '../../ir/material';
+import { Instance } from '../../ir/instance';
+import { loadTexture } from '../images/load-texture';
 
 /**
  * glTF 2.0 导入器（.gltf + 外链资源，或 .glb 单文件）。
@@ -50,21 +50,21 @@ const TYPE_COMPONENTS: Record<string, number> = {
 
 // 解析后的文档 —— 只声明用到的字段
 
-interface GLTFDocument {
-    accessors: GLTFAccessor[];
+interface GltfDocument {
+    accessors: GltfAccessor[];
     bufferViews: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
     /** 只有材质的文档没有 buffer —— 顶点数据是唯一需要它的东西。 */
     buffers?: { byteLength: number; uri?: string }[];
-    meshes: GLTFMesh[];
-    nodes: GLTFNode[];
-    materials?: GLTFMaterial[];
+    meshes: GltfMesh[];
+    nodes: GltfNode[];
+    materials?: GltfMaterial[];
     textures?: { source?: number; sampler?: number }[];
     images?: { uri?: string; bufferView?: number; mimeType?: string }[];
     scenes?: { nodes?: number[] }[];
     scene?: number;
 }
 
-interface GLTFAccessor {
+interface GltfAccessor {
     bufferView?: number;
     byteOffset?: number;
     componentType: number;
@@ -74,12 +74,12 @@ interface GLTFAccessor {
     sparse?: unknown;
 }
 
-interface GLTFMesh {
+interface GltfMesh {
     name?: string;
-    primitives: GLTFPrimitive[];
+    primitives: GltfPrimitive[];
 }
 
-interface GLTFPrimitive {
+interface GltfPrimitive {
     attributes: Record<string, number>;
     indices?: number;
     material?: number;
@@ -87,7 +87,7 @@ interface GLTFPrimitive {
     extensions?: Record<string, unknown>;
 }
 
-interface GLTFNode {
+interface GltfNode {
     name?: string;
     mesh?: number;
     children?: number[];
@@ -97,7 +97,7 @@ interface GLTFNode {
     scale?: number[];
 }
 
-interface GLTFTextureRef {
+interface GltfTextureRef {
     index: number;
     /** normalTexture 的法线强度。 */
     scale?: number;
@@ -105,16 +105,16 @@ interface GLTFTextureRef {
     strength?: number;
 }
 
-interface GLTFMaterial {
+interface GltfMaterial {
     name?: string;
-    normalTexture?: GLTFTextureRef;
-    occlusionTexture?: GLTFTextureRef;
+    normalTexture?: GltfTextureRef;
+    occlusionTexture?: GltfTextureRef;
     pbrMetallicRoughness?: {
         baseColorFactor?: number[];
-        baseColorTexture?: GLTFTextureRef;
+        baseColorTexture?: GltfTextureRef;
         metallicFactor?: number;
         roughnessFactor?: number;
-        metallicRoughnessTexture?: GLTFTextureRef;
+        metallicRoughnessTexture?: GltfTextureRef;
     };
 }
 
@@ -122,7 +122,7 @@ interface GLTFMaterial {
 
 /** 一次加载期间共享的状态：解码后的 buffer、贴图 URL 缓存、待释放的 blob URL。 */
 interface LoadContext {
-    doc: GLTFDocument;
+    doc: GltfDocument;
     buffers: ArrayBuffer[];
     baseUrl: string;
     /** texture 索引 → 已解析的贴图 URL。occlusion 要现场抽通道，单独缓存。 */
@@ -152,7 +152,7 @@ const derivedBlobs = new Map<string, Promise<string | null>>();
  * 材质已经在 Mesh 里了（贴图解码成 Image）：导入器交出的就是 IR 里
  * 能直接进 Scene 的东西，没有第二份「结果」需要调用方再拼。
  */
-export async function loadGLTF(url: string): Promise<Instance[]> {
+export async function loadGltf(url: string): Promise<Instance[]> {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Failed to load glTF: ${url} (${resp.status})`);
     const buf = await resp.arrayBuffer();
@@ -180,20 +180,20 @@ export async function loadGLTF(url: string): Promise<Instance[]> {
 // 容器
 
 /** .glb 是 12 字节头 + 若干 chunk；.gltf 就是纯 JSON。按 magic 判断，不看扩展名。 */
-function parseContainer(buf: ArrayBuffer, url: string): { doc: GLTFDocument; bin: ArrayBuffer | null } {
+function parseContainer(buf: ArrayBuffer, url: string): { doc: GltfDocument; bin: ArrayBuffer | null } {
     const view = new DataView(buf);
     if (buf.byteLength >= 12 && view.getUint32(0, true) === GLB_MAGIC) {
         const version = view.getUint32(4, true);
         if (version !== 2) throw new Error(`glTF ${url}: 只支持 glTF 2.0，这个文件是 ${version}`);
         let offset = 12;
-        let doc: GLTFDocument | null = null;
+        let doc: GltfDocument | null = null;
         let bin: ArrayBuffer | null = null;
         while (offset + 8 <= buf.byteLength) {
             const length = view.getUint32(offset, true);
             const type = view.getUint32(offset + 4, true);
             const start = offset + 8;
             if (type === CHUNK_JSON) {
-                doc = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, start, length))) as GLTFDocument;
+                doc = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, start, length))) as GltfDocument;
             } else if (type === CHUNK_BIN) {
                 bin = buf.slice(start, start + length);
             }
@@ -206,7 +206,7 @@ function parseContainer(buf: ArrayBuffer, url: string): { doc: GLTFDocument; bin
     if (text.trimStart().startsWith('<')) {
         throw new Error(`glTF ${url}: 看起来是 HTML/XML，不是 JSON —— 多半是 404 页面`);
     }
-    return { doc: JSON.parse(text) as GLTFDocument, bin: null };
+    return { doc: JSON.parse(text) as GltfDocument, bin: null };
 }
 
 /**
@@ -214,7 +214,7 @@ function parseContainer(buf: ArrayBuffer, url: string): { doc: GLTFDocument; bin
  * 统一读成一组 ArrayBuffer，accessor 用 buffer 下标索引。
  */
 async function loadBuffers(
-    doc: GLTFDocument,
+    doc: GltfDocument,
     bin: ArrayBuffer | null,
     baseUrl: string,
     url: string,
@@ -297,7 +297,7 @@ function readIndices(ctx: LoadContext, index: number): Uint32Array {
  * 一个 mesh 内部的多个 primitive 恰好共享同一套节点变换，合并后仍然只需要
  * 一个 Instance。primitive 之间的区分靠 triangleData 每四个数最后一位的材质下标。
  */
-function buildMesh(ctx: LoadContext, gm: GLTFMesh, materials: PBRMaterial[], name: string): Mesh {
+function buildMesh(ctx: LoadContext, gm: GltfMesh, materials: PBRMaterial[], name: string): Mesh {
     // 先扫一遍拿到总数，才能把几个 primitive 一次性铺进同一份顶点/三角形表
     let vertexCount = 0;
     let idxCount = 0;
@@ -421,7 +421,7 @@ function buildMesh(ctx: LoadContext, gm: GLTFMesh, materials: PBRMaterial[], nam
 }
 
 /** 不支持的 primitive 在这里一次性挡掉，避免后面的解析报出看不懂的错。 */
-function checkPrimitive(prim: GLTFPrimitive): void {
+function checkPrimitive(prim: GltfPrimitive): void {
     if (prim.mode !== undefined && prim.mode !== MODE_TRIANGLES) {
         throw new Error(`glTF: 只支持三角形（mode 4），这个 primitive 是 mode ${prim.mode}`);
     }
@@ -624,7 +624,7 @@ function computeSmoothNormals(
  * 变换留在 Instance 上而不是烤进顶点：同一个 mesh 被多个节点复用时，
  * 几何只该有一份（BLAS 按 mesh 建）。
  */
-function buildInstances(doc: GLTFDocument, meshes: Mesh[]): Instance[] {
+function buildInstances(doc: GltfDocument, meshes: Mesh[]): Instance[] {
     const out: Instance[] = [];
     const sceneIndex = doc.scene ?? 0;
     const roots = doc.scenes?.[sceneIndex]?.nodes ?? doc.nodes.map((_, i) => i);
@@ -646,7 +646,7 @@ function buildInstances(doc: GLTFDocument, meshes: Mesh[]): Instance[] {
     return out;
 }
 
-function localMatrix(node: GLTFNode): Float32Array {
+function localMatrix(node: GltfNode): Float32Array {
     if (node.matrix) return new Float32Array(node.matrix);
 
     const [tx, ty, tz] = node.translation ?? [0, 0, 0];
@@ -831,7 +831,7 @@ function occlusionUrl(ctx: LoadContext, index: number): Promise<string | null> {
 
 // 材质
 
-async function convertMaterial(gm: GLTFMaterial, ctx: LoadContext): Promise<PBRMaterial> {
+async function convertMaterial(gm: GltfMaterial, ctx: LoadContext): Promise<PBRMaterial> {
     const mat = defaultPBRMaterial();
     const pbr = gm.pbrMetallicRoughness ?? {};
 

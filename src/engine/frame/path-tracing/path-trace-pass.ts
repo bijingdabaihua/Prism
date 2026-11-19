@@ -1,7 +1,7 @@
 import type { RenderContext } from '../../context';
 import type { Model } from '../../model/model';
 import type { Background } from '../../background';
-import type { TextureSet } from '../../model/material/texture/texture-set';
+import type { TextureSet } from '../../model/material/texture-set';
 import { buildPixelOrder } from './pixel-order';
 import structs from './structs.wgsl?raw';
 import aabb from './aabb.wgsl?raw';
@@ -32,30 +32,23 @@ const FIXED_RESERVE_MS = 0.5;
  * 各多采一次，所以「该像素之前采过几次」= 已完成轮数 (+ 本帧是否跨轮)。
  */
 export class PathTracePass {
+    /** 累积纹理每重建一次就加一；Display 靠它判断 blit bind group 是否过期。 */
+    private version = 0;
     /**
-     * 路径弹射次数上限，写入 shader uniform（u.max_bounces）。
+     * 本帧是否重开了累积（相机/场景/尺寸变化）。
      *
-     * 这只是安全上限：shader 里在第 4 次弹射之后开俄罗斯轮盘赌，正常路径
-     * 按吞吐量自己决定要不要继续。设成 12 是为了防止极端情况下的死循环。
+     * 渲染循环据此在「响应」和「吞吐」两档预算间切换：画面正在被改动时延迟要紧，
+     * 静止累积时吞吐要紧。用「累积是否被重置」而不是「相机是否动了」来表达，
+     * 是因为循环不该认识相机 —— 任何让画面从头再来的原因都该走同一条路。
      */
-    public maxBounces = 12;
-    /** Bumped on every accumulation-texture rebuild; drives Display blit bind-group invalidation. */
-    public radianceVersion = 0;
-
-    private context: RenderContext;
-    private model: Model;
-    private cameraUniform: GPUBuffer;
-    private background: Background;
-    private textures: TextureSet;
+    private restartedThisFrame = false;
     private width = 0;
     private height = 0;
     private pixelCount = 0;
-    /** Set by onResize; consumed (rebuild) at the next record(). */
+    /** onResize 只置脏；真正的重建推迟到下一次 record()。 */
     private resizeDirty = false;
     private pipeline?: GPUComputePipeline;
     private bgl?: GPUBindGroupLayout;
-    /** 环境图采样器：u 环绕、v 夹边，与材质贴图那个 repeat/repeat 分开。 */
-    private readonly envSampler: GPUSampler;
     private uniformBuf?: GPUBuffer;
     private accumTextures: [GPUTexture?, GPUTexture?] = [undefined, undefined];
     private accumViews: [GPUTextureView?, GPUTextureView?] = [undefined, undefined];
@@ -63,13 +56,12 @@ export class PathTracePass {
     private currentWriteView: GPUTextureView | null = null;
     /** 像素采样顺序表（0..pixelCount-1 的随机排列），resize 时重建。 */
     private orderBuf?: GPUBuffer;
-    /** Ping-pong bind groups, indexed by the current write index. */
+    /** Ping-pong bind group，按当前写索引取。 */
     private bindGroups: [GPUBindGroup?, GPUBindGroup?] = [undefined, undefined];
-    /** 建这批 bind group 时环境图的版本号；和 Background.version 不一致就重建。 */
+    /** 建这批 bind group 时环境图的版本号；和 Background.version() 不一致就重建。 */
     private bindGroupEnvVersion = -1;
-    /** Which write view each cached bind group was created against (detects texture rebuild). */
+    /** 每个缓存 bind group 创建时对应的写视图 —— 视图换了说明纹理重建过。 */
     private bindGroupWriteViews: [GPUTextureView?, GPUTextureView?] = [undefined, undefined];
-
     /** 当前轮内已采样的像素数，[0, pixelCount)。 */
     private cursor = 0;
     /** 已完成的整轮数 —— 每个像素的样本数下界。 */
@@ -83,15 +75,20 @@ export class PathTracePass {
     private targetFrameMs = DEFAULT_TARGET_MS;
     /** 下一帧清空累加缓冲并从头开始采样。 */
     private resetPending = false;
-
+    private readonly context: RenderContext;
+    private readonly model: Model;
+    private readonly cameraUniform: GPUBuffer;
+    private readonly background: Background;
+    private readonly textures: TextureSet;
+    /** 环境图采样器：u 环绕、v 夹边，与材质贴图那个 repeat/repeat 分开。 */
+    private readonly envSampler: GPUSampler;
     /**
-     * 本帧是否重开了累积（相机/场景/尺寸变化）。
+     * 路径弹射次数上限，写入 shader uniform（u.max_bounces）。
      *
-     * 渲染循环据此在「响应」和「吞吐」两档预算间切换：画面正在被改动时延迟要紧，
-     * 静止累积时吞吐要紧。用「累积是否被重置」而不是「相机是否动了」来表达，
-     * 是因为循环不该认识相机 —— 任何让画面从头再来的原因都该走同一条路。
+     * 这只是安全上限：shader 里在第 4 次弹射之后开俄罗斯轮盘赌，正常路径
+     * 按吞吐量自己决定要不要继续。设成 12 是为了防止极端情况下的死循环。
      */
-    public restarted = false;
+    private readonly maxBounces = 12;
 
     constructor(context: RenderContext, model: Model, cameraUniform: GPUBuffer, background: Background) {
         this.context = context;
@@ -116,38 +113,23 @@ export class PathTracePass {
         this.rebuildDeviceResources();
     }
 
-    public outView(): GPUTextureView | undefined {
-        return this.accumViews[this.accumIndex];
-    }
-
     public radianceView(): GPUTextureView | null {
         return this.currentWriteView ?? this.outView() ?? null;
     }
 
+    /** 累积纹理每重建一次就加一；Display 据此判断 blit bind group 是否过期。 */
+    public radianceVersion(): number {
+        return this.version;
+    }
+
+    /** 上一帧是否重开了累积（相机 / 场景 / 尺寸变化）。 */
+    public restarted(): boolean {
+        return this.restartedThisFrame;
+    }
+
     /** 本帧实际调度的像素数（预算控制器读取）。 */
-    public get lastDispatch(): number {
+    public lastDispatch(): number {
         return this.lastDispatched;
-    }
-
-    /**
-     * 已完成的整轮采样数（每个像素至少采过这么多次）。
-     *
-     * 已经请求重置、但还没落到下一帧时算 0：那两张累积纹理马上就会被清掉，
-     * 报旧的轮数等于说「这张马上要消失的画面采够了」。
-     */
-    public get completedSamples(): number {
-        return this.resetPending ? 0 : this.sweep;
-    }
-
-    /**
-     * 清空累加缓冲并从头开始（游标归零）。
-     * 相机/场景/背景/渲染参数变化时必须调用，否则新旧画面混叠。
-     */
-    public requestReset(): void {
-        this.resetPending = true;
-        // frameIndex 故意不归零：它是 LDS 的采样序号，只喂随机数、不参与累加。
-        // 拖动时每帧都重置，若序号回到 1，所有像素会一直用同一组随机数 ——
-        // 单样本画面会呈现一张固定的屏幕空间花纹，而不像噪点。
     }
 
     /** 每帧 GPU 预算（毫秒）。RenderLoop 按实测刷新率下发。 */
@@ -187,21 +169,11 @@ export class PathTracePass {
         this.dispatchTarget = Math.max(1, Math.round(next));
     }
 
-    public destroy(): void {
-        this.uniformBuf?.destroy();
-        this.orderBuf?.destroy();
-        for (const t of this.accumTextures) t?.destroy();
-        this.accumTextures = [undefined, undefined];
-        this.accumViews = [undefined, undefined];
-        this.bindGroups = [undefined, undefined];
-        this.bindGroupWriteViews = [undefined, undefined];
-    }
-
     public record(encoder: GPUCommandEncoder, cameraChanged: boolean): void {
         const d = this.context.device;
         const bg = this.background;
 
-        this.restarted = false;
+        this.restartedThisFrame = false;
 
         // resize 脏标记 → 重建累积纹理（尺寸相关的纹理按需懒创建，首帧由 onResize 置脏触发）
         if (this.resizeDirty) {
@@ -209,7 +181,7 @@ export class PathTracePass {
             this.width = this.context.width();
             this.height = this.context.height();
             this.rebuildAccumTextures();
-            this.restarted = true;
+            this.restartedThisFrame = true;
         }
         if (!this.width || !this.height) return;
 
@@ -223,7 +195,7 @@ export class PathTracePass {
         // bind group 在三种情况下重建：还没建过、累积纹理被 resize 换成了新视图
         // （两张 ping-pong 是新旧视图各建一次，命中任一即说明整批都过期了），
         // 或环境图换了（旧纹理已 destroy，绑定必须跟着换）。
-        const envChanged = this.bindGroupEnvVersion !== bg.version;
+        const envChanged = this.bindGroupEnvVersion !== bg.version();
         if (!this.bindGroups[0] || this.bindGroupWriteViews[0] !== this.accumViews[0] || envChanged) {
             // 光照变了，旧累积已经没有意义
             if (envChanged && this.bindGroupEnvVersion !== -1) this.requestReset();
@@ -238,7 +210,7 @@ export class PathTracePass {
         if (this.resetPending) {
             // 相机/内容变化：两张都清黑，游标归零，从顺序表开头重新铺。
             this.resetPending = false;
-            this.restarted = true;
+            this.restartedThisFrame = true;
             this.cursor = 0;
             this.sweep = 0;
             const pass = encoder.beginRenderPass({
@@ -301,7 +273,32 @@ export class PathTracePass {
         this.frameIndex++;
     }
 
-    /** Device-level resources: only rebuilt when the GPU device changes. */
+    public destroy(): void {
+        this.uniformBuf?.destroy();
+        this.orderBuf?.destroy();
+        for (const t of this.accumTextures) t?.destroy();
+        this.accumTextures = [undefined, undefined];
+        this.accumViews = [undefined, undefined];
+        this.bindGroups = [undefined, undefined];
+        this.bindGroupWriteViews = [undefined, undefined];
+    }
+
+    private outView(): GPUTextureView | undefined {
+        return this.accumViews[this.accumIndex];
+    }
+
+    /**
+     * 清空累加缓冲并从头开始（游标归零）。
+     * 相机/场景/背景/渲染参数变化时必须调用，否则新旧画面混叠。
+     */
+    private requestReset(): void {
+        this.resetPending = true;
+        // frameIndex 故意不归零：它是 LDS 的采样序号，只喂随机数、不参与累加。
+        // 拖动时每帧都重置，若序号回到 1，所有像素会一直用同一组随机数 ——
+        // 单样本画面会呈现一张固定的屏幕空间花纹，而不像噪点。
+    }
+
+    /** 设备级资源：只有换 GPUDevice 时才需要重建。 */
     private rebuildDeviceResources(): void {
         const d = this.context.device;
 
@@ -368,7 +365,7 @@ export class PathTracePass {
         this.pipeline = d.createComputePipeline({ layout, compute: { module, entryPoint: 'main' } });
     }
 
-    /** Size-level resources: only rebuilt when the render resolution changes. */
+    /** 尺寸级资源：只有渲染分辨率变化时才需要重建。 */
     private rebuildAccumTextures(): void {
         const d = this.context.device;
         if (!this.width || !this.height) return;
@@ -412,19 +409,19 @@ export class PathTracePass {
         this.sweep = 0;
         this.resetPending = false;
         this.dispatchTarget = Math.min(Math.max(this.dispatchTarget, MIN_DISPATCH), this.pixelCount, MAX_DISPATCH);
-        this.radianceVersion++;
+        this.version++;
     }
 
-    /** Rebuilds both ping-pong bind groups at once so slot 0/1 always reference the same scene resources. */
+    /** 两张 ping-pong 的 bind group 一起建，保证 0/1 槽位引用的是同一批场景资源。 */
     private rebuildBindGroups(): void {
         this.bindGroups[0] = this.createBindGroup(this.accumViews[0]!, this.accumViews[1]!);
         this.bindGroups[1] = this.createBindGroup(this.accumViews[1]!, this.accumViews[0]!);
         this.bindGroupWriteViews[0] = this.accumViews[0];
         this.bindGroupWriteViews[1] = this.accumViews[1];
-        this.bindGroupEnvVersion = this.background.version;
+        this.bindGroupEnvVersion = this.background.version();
     }
 
-    /** Only the ping-pong views change per rebuild; all scene resources are read from the held references. */
+    /** 每次重建只有两张 ping-pong 视图在变，场景资源全部从持有的引用里取。 */
     private createBindGroup(writeView: GPUTextureView, readView: GPUTextureView): GPUBindGroup {
         const model = this.model;
         const bg = this.background;

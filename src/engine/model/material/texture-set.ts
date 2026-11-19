@@ -1,6 +1,6 @@
-import type { Image } from '../../../../ir/image';
-import type { TextureKind } from '../../../../ir/material';
-import { linearToSRGB } from '../../../../math/color';
+import type { Image } from '../../../ir/image';
+import type { TextureKind } from '../../../ir/material';
+import { linearToSRGB } from '../../../math/color';
 
 /**
  * 材质贴图 —— 四个 texture_2d_array（颜色 / 法线 / 粗糙度 / AO），各自带完整 mip 链。
@@ -51,9 +51,9 @@ interface Channel {
 }
 
 export class TextureSet {
-    public readonly size: number;
-    public readonly layerCount: number;
     private readonly device: GPUDevice;
+    private readonly size: number;
+    private readonly layerCount: number;
     private readonly channels: Record<TextureKind, Channel>;
     private readonly texSampler: GPUSampler;
 

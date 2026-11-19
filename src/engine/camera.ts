@@ -21,9 +21,6 @@ import { Mat4 } from '../math/mat4';
  */
 export class Camera {
     public readonly buffer: GPUBuffer;
-    private readonly device: GPUDevice;
-    /** 相机的渲染器；画面只从这里出。 */
-    private readonly frame: Frame;
     /** 正在往哪里推画面；null = 没人监听。 */
     private listener: Listener | null = null;
     private listenTimer: ReturnType<typeof setTimeout> | null = null;
@@ -42,6 +39,9 @@ export class Camera {
     private far = 100;
     private renderWidth = 800;
     private renderHeight = 600;
+    private readonly device: GPUDevice;
+    /** 相机的渲染器；画面只从这里出。 */
+    private readonly frame: Frame;
 
     constructor(context: RenderContext, model: Model, background: Background) {
         this.device = context.device;
@@ -105,13 +105,13 @@ export class Camera {
     }
 
     /** 这一帧还能不能提交 —— 渲染循环的节流判断。 */
-    public get readyForNextFrame(): boolean {
-        return this.frame.readyForNextFrame;
+    public readyForNextFrame(): boolean {
+        return this.frame.readyForNextFrame();
     }
 
     /** 上一帧是否重开了累积 —— 渲染循环据此切换采样预算档位。 */
-    public get restarted(): boolean {
-        return this.frame.restarted;
+    public restarted(): boolean {
+        return this.frame.restarted();
     }
 
     /** 每帧 GPU 预算（毫秒）。 */
@@ -211,7 +211,7 @@ export class Camera {
     private deliver(listener: Listener): void {
         if (this.listener !== listener) return;
         try {
-            const count = this.frame.frameCount;
+            const count = this.frame.frameCount();
             if (count !== listener.lastSent) {
                 const bitmap = this.frame.capture();
                 if (bitmap) {

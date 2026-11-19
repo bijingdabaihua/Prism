@@ -14,8 +14,8 @@
 |---|---|
 | **荒地** | 一只青花瓷罐搁在夕阳下的砂土上，右下角躺着一根枯枝。地面铺到 72 m 外 —— 地表的起伏是真几何，每一颗石子都参与求交和阴影，不是法线贴图贴出来的假凹凸；景深是薄透镜算的，光圈半径按毫米给。 |
 
-渲染页左上角返回画廊，左下角 HUD 是实时统计（每帧采样数、GPU 耗时、帧率），
-按 `S` 保存当前截图。
+渲染页左上角返回画廊。渲染跑在 Worker 里，主线程只负责显示；左键拖拽旋转、
+滚轮缩放、右键拖拽平移。
 
 ## 跑起来
 
@@ -63,8 +63,8 @@ Firefox 需要 `dom.webgpu.enabled`。不支持时会落到静态页 —— 渲�
 - **不支持透明 / alpha 切边**。树叶、纱帘这类靠 alpha 裁形的模型会渲染成实心片
   （材质 IR 里连 alpha 字段都不留，要做得从 glTF 导入一路加回来）
 - **没有透射 / 玻璃**。这是路径追踪最能打的画面，排在下一个
-- **BVH 是最长轴中位数切分，不是 SAH**。这个规模下实测没差别，换桶装 SAH
-  只影响 `src/engine/model/bvh.ts` 一个函数
+- **BVH 是 16 桶 × 三条轴的分桶 SAH**；深度超过 40 层时退回中位数切分，
+  给 shader 的 64 层遍历栈留余量。叶子最多 2 个图元
 - **没有自发光 / 显式光源类型**。照明只有环境图，模型自带的 emissive 材质会被忽略
 
 ## 结构
@@ -72,8 +72,12 @@ Firefox 需要 `dom.webgpu.enabled`。不支持时会落到静态页 —— 渲�
 依赖方向单向，越往下越不认识上面的东西：
 
 ```
-app/     路由、画廊、渲染页、降级页
-config/  构建 IR：场景清单、场景构建器、资产导入器（glTF / 图像 / 贴图）、几何工具
+app/     路由、画廊、渲染页、降级页 —— 只 import core/prism
+core/    Prism 门面（主线程）+ Worker 组合根（渲染线程）
+         prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/
+config/  构建 IR：场景清单（manifest.ts）+ 卡片（catalog.ts）+ 导入器 + 几何工具
+         scenes/ 具体场景 · importers/ glTF / blend · images/ 解码 ·
+         geometry/ MeshBuilder 与摆位
 engine/  拿 IR 建可渲染的东西（不按 CPU / GPU 分工）：context / camera /
          frame（含 path-tracing）/ loop / background（envMap + 亮度 CDF）/
          display（色调映射 + 暗角 + 颗粒）/ model（model.ts 一条链编译到底：
@@ -82,16 +86,18 @@ ir/      IR 定义：Image / PBRMaterial / Mesh / Instance / Scene / CameraView
 math/    向量、矩阵、颜色
 ```
 
-`engine/` 里仍然是分层单向的：编排 → GPU 资源 → 场景 IR。IR 与编译产物分离：
-`ir/` 下的 `instance.ts` / `mesh.ts` 是场景描述，`model/model.ts` 里的 buffer 是编译结果，
-所以换掉渲染后端不用动场景代码。
+光追完全跑在 Worker 里：`Prism.create()` 起一个 Worker、要一个独立 `GPUDevice`，
+主线程不碰 GPU，只通过 `camera.listen()` 接收 `ImageBitmap`。`core/worker.ts` 是唯一
+同时 import `engine/` 和 `config/` 的地方。IR 与编译产物分离：`ir/` 下的
+`instance.ts` / `mesh.ts` 是场景描述，`model/model.ts` 里的 buffer 是编译结果。
 
 约 8800 行 TypeScript + WGSL + CSS。
 
 ### 加一个场景
 
-`src/config/config.ts` 是唯一清单：写一个 `createXxx(): Promise<Scene>` 构建器
-（单独一个文件），在 `SCENES` 里加一条，再放一张 `assets/gallery/<key>.png` 当封面。
+`src/config/manifest.ts` 是唯一清单：写一个 `createXxx(): Promise<Scene>` 构建器
+（`config/scenes/` 里单独一个文件），在 `SCENES` 里加一条，在 `catalog.ts` 里
+加卡片元数据，再放一张 `assets/gallery/<key>.png` 当封面。
 路由、画廊、降级页都会自动带上它。
 
 ## 场景从哪来
@@ -101,7 +107,7 @@ math/    向量、矩阵、颜色
 有些场景是几个模型拼起来的，摆放和取景写在 `src/config/` 里 ——
 引擎不认识具体的模型，只认 `Scene`。
 
-地面这类大面积几何由代码生成 —— `src/config/mesh-builder.ts` 里的 `MeshBuilder`
+地面这类大面积几何由代码生成 —— `src/config/geometry/mesh-builder.ts` 里的 `MeshBuilder`
 铺平面，位移贴图挂在材质上：`Mesh.evolve()` 在编译时把带图的三角形细分成真几何、
 顶点抬起、法线按高度场重算，那张图进 GPU 之前就被消耗掉了。
 

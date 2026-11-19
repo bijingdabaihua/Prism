@@ -43,34 +43,17 @@ const SLOT_COUNT = 3;
 export class GpuTimer {
     /** 每次测量完成时回调（异步，通常比提交晚 1–2 帧）。 */
     public onMeasure?: (samplingMs: number, totalMs: number, dispatch: number) => void;
-
-    /**
-     * 还能不能再提交一帧。
-     *
-     * 提交得比 GPU 跑得快，队列就越积越深：槽位全被占满之后测量被丢弃，
-     * 控制器收不到任何新数据、采样量冻住不动，直到队列排空才缓过来。
-     *
-     * 上限是 2 而不是 1：只许一帧在途的话，提交要等上一帧的读回、再等下一个
-     * rAF，GPU 每帧空转最多半个刷新间隔 —— 采样量直接掉三成。2 帧在途
-     * 正好让 GPU 连轴转，而 3 个槽位永远留着一个空位，测量不断供。
-     */
-    public get canSubmit(): boolean {
-        if (this.slots.length === 0) return !this.fallbackBusy;
-        return this.inFlight < MAX_IN_FLIGHT;
-    }
-
-    private readonly device: GPUDevice;
     private querySet: GPUQuerySet | null = null;
     private resolveBuf: GPUBuffer | null = null;
     private slots: Array<{ buf: GPUBuffer; busy: boolean }> = [];
     /** 已提交、还没读回的帧数。 */
     private inFlight = 0;
     private pending: { slot: { buf: GPUBuffer; busy: boolean }; dispatch: number } | null = null;
-
     /** 退回方案用的 CPU 起点与当前帧采样量。 */
     private cpuStart = 0;
     private fallbackDispatch = 0;
     private fallbackBusy = false;
+    private readonly device: GPUDevice;
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -91,6 +74,21 @@ export class GpuTimer {
                 });
             }
         }
+    }
+
+    /**
+     * 还能不能再提交一帧。
+     *
+     * 提交得比 GPU 跑得快，队列就越积越深：槽位全被占满之后测量被丢弃，
+     * 控制器收不到任何新数据、采样量冻住不动，直到队列排空才缓过来。
+     *
+     * 上限是 2 而不是 1：只许一帧在途的话，提交要等上一帧的读回、再等下一个
+     * rAF，GPU 每帧空转最多半个刷新间隔 —— 采样量直接掉三成。2 帧在途
+     * 正好让 GPU 连轴转，而 3 个槽位永远留着一个空位，测量不断供。
+     */
+    public canSubmit(): boolean {
+        if (this.slots.length === 0) return !this.fallbackBusy;
+        return this.inFlight < MAX_IN_FLIGHT;
     }
 
     /** 帧开始（采样之前）。 */

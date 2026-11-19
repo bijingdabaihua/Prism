@@ -1,11 +1,11 @@
 import type { Image } from '../../../ir/image';
 import type { PBRMaterial, TextureKind } from '../../../ir/material';
 import type { MaterialTexSlots, TexRef } from './packing';
-import { TextureSet } from './texture/texture-set';
+import { TextureSet } from './texture-set';
 import { packPBRMaterial, PBR_MAT_FLOATS } from './packing';
 
 /**
- * GPU material storage — owns the material SSBO.
+ * GPU 材质存储 —— 持有材质 SSBO。
  *
  * 一节材质 = PBR_MAT_FLOATS 个 float，shader 用三角形里存的绝对槽位索引它。
  * 同一个材质对象只打包一次，被多个 mesh 引用时共用同一个槽位。
@@ -16,7 +16,7 @@ import { packPBRMaterial, PBR_MAT_FLOATS } from './packing';
  * 生命周期和场景一样：register() 收集、compile() 一次写进 SSBO，之后只读。
  */
 export class MaterialStore {
-    /** 材质采样的图集；pathTrace 直接从这里拿四个数组的 view。 */
+    /** 材质采样的图集；PathTracePass 直接从这里拿四个数组的 view。 */
     public readonly textures: TextureSet;
     private buffer!: GPUBuffer;
     private materials: Float32Array[] = [];
@@ -69,7 +69,7 @@ export class MaterialStore {
      * 材质里的贴图 → texture_2d_array 的层号。
      *
      * IR 里的贴图已经是解码好的 Image，这里不需要再查表 —— 解码和去重都在
-     * 导入器那一侧（config/load-texture.ts）完成，编译层只负责分配层号。
+     * 导入器那一侧（config/images/load-texture.ts）完成，编译层只负责分配层号。
      */
     private resolveTextures(material: PBRMaterial): MaterialTexSlots {
         return {

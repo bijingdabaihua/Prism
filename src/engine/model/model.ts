@@ -2,9 +2,9 @@ import type { Instance } from '../../ir/instance';
 import { INST_FLOATS } from '../../ir/instance';
 import type { Mesh } from '../../ir/mesh';
 import { Mat4 } from '../../math/mat4';
-import { buildBVH, meshBLAS } from './bvh';
+import { buildBvh, meshBlas } from './bvh';
 import { MaterialStore } from './material/material-store';
-import type { TextureSet } from './material/texture/texture-set';
+import type { TextureSet } from './material/texture-set';
 
 /**
  * Model —— 场景的 GPU 形态：一组 buffer。
@@ -74,7 +74,7 @@ function computeOffsets(insts: readonly Instance[]): SceneOffsets {
         blas.push(b);
         vert.push(v);
         tri.push(t);
-        b += meshBLAS(mesh).length;
+        b += meshBlas(mesh).length;
         v += mesh.vertexData.length / 12;
         t += mesh.triangleData.length / 4;
     }
@@ -102,7 +102,7 @@ function computeOffsets(insts: readonly Instance[]): SceneOffsets {
  * 叶子节点编码 -(instanceIndex + 1)；只有一个实例时直接退化成单节点，
  * 与 shader 里 `bvh.wgsl` 的约定一致。
  */
-function buildTLAS(insts: readonly Instance[]): Float32Array {
+function buildTlas(insts: readonly Instance[]): Float32Array {
     if (insts.length === 0) return new Float32Array(0);
     if (insts.length === 1) {
         const b = insts[0].getBounds();
@@ -116,7 +116,7 @@ function buildTLAS(insts: readonly Instance[]): Float32Array {
         n[6] = -1;
         return n;
     }
-    return buildBVH(insts, (i) => {
+    return buildBvh(insts, (i) => {
         const b = i.getBounds();
         return { min: { x: b.min.x, y: b.min.y, z: b.min.z }, max: { x: b.max.x, y: b.max.y, z: b.max.z } };
     });
@@ -129,7 +129,7 @@ function buildTLAS(insts: readonly Instance[]): Float32Array {
  *   内部节点的子节点偏移会加上它；叶子（负值）是三角形下标，不受影响。
  */
 function mergeBLAS(offsets: SceneOffsets, nodeBase: number): Float32Array {
-    const all = offsets.meshes.map((m) => meshBLAS(m));
+    const all = offsets.meshes.map((m) => meshBlas(m));
     let total = 0;
     for (const b of all) total += b.length;
     const merged = new Float32Array(total);
@@ -161,7 +161,7 @@ interface SceneNodesData {
 
 /** 建 TLAS，把所有 mesh 的 BLAS 接在它后面，并重基内部节点下标。 */
 function buildSceneNodes(insts: readonly Instance[], offsets: SceneOffsets): SceneNodesData {
-    const tlas = buildTLAS(insts);
+    const tlas = buildTlas(insts);
     const blas = mergeBLAS(offsets, tlas.length);
     const data = new Float32Array(tlas.length + blas.length);
     data.set(tlas, 0);

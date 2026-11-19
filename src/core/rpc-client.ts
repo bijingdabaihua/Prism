@@ -14,9 +14,9 @@ import { PrismUnsupportedError } from './errors';
 export class RpcClient {
     private nextId = 1;
     private closed = false;
-    private readonly pending = new Map<number, Pending>();
     /** listen 推回来的帧。同一时刻只服务一个监听者。 */
     private frameHandler: ((bitmap: ImageBitmap) => void) | null = null;
+    private readonly pending = new Map<number, Pending>();
 
     constructor(private readonly worker: Worker) {
         worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {

@@ -26,6 +26,92 @@ export class RenderView {
     private lastX = 0;
     private lastY = 0;
     private pinchDist = 0;
+    /**
+     * 鼠标映射照 Blender 的视口来：
+     *
+     *   中键拖       转视角
+     *   Shift + 中键 平移
+     *   Ctrl + 中键  推拉
+     *   滚轮         推拉
+     *
+     * 左键也留给旋转：Mac 触控板没有中键，不然只剩右键平移、没法转视角了。
+     */
+    private onMouseDown = (e: MouseEvent) => {
+        if (e.button === 0) {
+            this.dragMode = e.shiftKey ? 'pan' : 'orbit';
+        } else if (e.button === 1) {
+            this.dragMode = e.ctrlKey || e.metaKey ? 'zoom' : e.shiftKey ? 'pan' : 'orbit';
+        } else if (e.button === 2) {
+            this.dragMode = 'pan';
+        } else {
+            return;
+        }
+        this.dragging = true;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+        e.preventDefault();
+    };
+    private onMouseMove = (e: MouseEvent) => {
+        if (!this.dragging) return;
+        const dx = e.clientX - this.lastX;
+        const dy = e.clientY - this.lastY;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+        if (this.dragMode === 'orbit') {
+            this.orbit(dx, dy);
+        } else if (this.dragMode === 'pan') {
+            this.pan(dx, dy);
+        } else if (this.dragMode === 'zoom') {
+            // 往上拖推近：指数映射，拖多远都是等比例，不会突然冲过头
+            this.prism?.camera.zoom(Math.exp(dy * 0.005));
+        }
+    };
+    private onMouseUp = () => {
+        this.dragging = false;
+        this.dragMode = '';
+    };
+    private onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        this.prism?.camera.zoom(e.deltaY > 0 ? 1.1 : 0.9);
+    };
+    private onContextMenu = (e: Event) => {
+        e.preventDefault();
+    };
+    private onTouchStart = (e: TouchEvent) => {
+        if (e.touches.length >= 2) {
+            this.pinching = true;
+            this.pinchDist = touchDistance(e);
+        } else if (e.touches.length === 1) {
+            this.pinching = false;
+            this.dragging = true;
+            this.dragMode = 'orbit';
+            this.lastX = e.touches[0].clientX;
+            this.lastY = e.touches[0].clientY;
+        }
+    };
+    private onTouchMove = (e: TouchEvent) => {
+        e.preventDefault();
+        if (this.pinching && e.touches.length >= 2) {
+            const next = touchDistance(e);
+            if (this.pinchDist > 0 && next > 0) {
+                this.prism?.camera.zoom(this.pinchDist / next);
+            }
+            this.pinchDist = next;
+            return;
+        }
+        if (!this.dragging || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const dx = touch.clientX - this.lastX;
+        const dy = touch.clientY - this.lastY;
+        this.lastX = touch.clientX;
+        this.lastY = touch.clientY;
+        this.orbit(dx, dy);
+    };
+    private onTouchEnd = () => {
+        this.dragging = false;
+        this.pinching = false;
+        this.dragMode = '';
+    };
     private readonly key: string;
     /** 有 WebGPU API、但拿不到设备时交给外层换成降级页。 */
     private readonly onUnsupported: () => void;
@@ -181,103 +267,10 @@ export class RenderView {
         this.prism?.camera.pan(dx, dy);
     }
 
-    /**
-     * 鼠标映射照 Blender 的视口来：
-     *
-     *   中键拖       转视角
-     *   Shift + 中键 平移
-     *   Ctrl + 中键  推拉
-     *   滚轮         推拉
-     *
-     * 左键也留给旋转：Mac 触控板没有中键，不然只剩右键平移、没法转视角了。
-     */
-    private onMouseDown = (e: MouseEvent) => {
-        if (e.button === 0) {
-            this.dragMode = e.shiftKey ? 'pan' : 'orbit';
-        } else if (e.button === 1) {
-            this.dragMode = e.ctrlKey || e.metaKey ? 'zoom' : e.shiftKey ? 'pan' : 'orbit';
-        } else if (e.button === 2) {
-            this.dragMode = 'pan';
-        } else {
-            return;
-        }
-        this.dragging = true;
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-        e.preventDefault();
-    };
+}
 
-    private onMouseMove = (e: MouseEvent) => {
-        if (!this.dragging) return;
-        const dx = e.clientX - this.lastX;
-        const dy = e.clientY - this.lastY;
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-        if (this.dragMode === 'orbit') {
-            this.orbit(dx, dy);
-        } else if (this.dragMode === 'pan') {
-            this.pan(dx, dy);
-        } else if (this.dragMode === 'zoom') {
-            // 往上拖推近：指数映射，拖多远都是等比例，不会突然冲过头
-            this.prism?.camera.zoom(Math.exp(dy * 0.005));
-        }
-    };
-
-    private onMouseUp = () => {
-        this.dragging = false;
-        this.dragMode = '';
-    };
-
-    private onWheel = (e: WheelEvent) => {
-        e.preventDefault();
-        this.prism?.camera.zoom(e.deltaY > 0 ? 1.1 : 0.9);
-    };
-
-    private onContextMenu = (e: Event) => {
-        e.preventDefault();
-    };
-
-    private onTouchStart = (e: TouchEvent) => {
-        if (e.touches.length >= 2) {
-            this.pinching = true;
-            this.pinchDist = this.touchDistance(e);
-        } else if (e.touches.length === 1) {
-            this.pinching = false;
-            this.dragging = true;
-            this.dragMode = 'orbit';
-            this.lastX = e.touches[0].clientX;
-            this.lastY = e.touches[0].clientY;
-        }
-    };
-
-    private onTouchMove = (e: TouchEvent) => {
-        e.preventDefault();
-        if (this.pinching && e.touches.length >= 2) {
-            const next = this.touchDistance(e);
-            if (this.pinchDist > 0 && next > 0) {
-                this.prism?.camera.zoom(this.pinchDist / next);
-            }
-            this.pinchDist = next;
-            return;
-        }
-        if (!this.dragging || e.touches.length !== 1) return;
-        const touch = e.touches[0];
-        const dx = touch.clientX - this.lastX;
-        const dy = touch.clientY - this.lastY;
-        this.lastX = touch.clientX;
-        this.lastY = touch.clientY;
-        this.orbit(dx, dy);
-    };
-
-    private onTouchEnd = () => {
-        this.dragging = false;
-        this.pinching = false;
-        this.dragMode = '';
-    };
-
-    private touchDistance(e: TouchEvent): number {
-        const a = e.touches[0];
-        const b = e.touches[1];
-        return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    }
+function touchDistance(e: TouchEvent): number {
+    const a = e.touches[0];
+    const b = e.touches[1];
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 }

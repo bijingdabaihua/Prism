@@ -11,10 +11,10 @@ import FS from './fullscreen-fragment.wgsl?raw';
 export class Display {
     private context: RenderContext;
     private pipeline: GPURenderPipeline | null = null;
-    private bgl: GPUBindGroupLayout;
     private blitVersion = -1;
     /** Blit bind groups keyed by radiance view — ping-pong 每帧在两张 view 间切换，每个版本正好 2 个缓存项。 */
     private blitBindGroups = new Map<GPUTextureView, GPUBindGroup>();
+    private readonly bgl: GPUBindGroupLayout;
 
     constructor(context: RenderContext) {
         this.context = context;
