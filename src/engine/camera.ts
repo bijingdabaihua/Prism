@@ -1,11 +1,18 @@
 import type { Vec3 } from '../math/types';
 import type { CameraView } from '../ir/camera';
 import type { RenderContext } from './context';
+import type { Model } from './model/model';
+import type { Background } from './background';
+import type { FrameStats } from './frame/frame';
+import { Frame } from './frame/frame';
 import { vec3, normalize, cross, sub, add, scale } from '../math/vec3';
 import { Mat4 } from '../math/mat4';
 
 /**
- * 轨道相机：观察状态 + 它的 uniform buffer（112 B，布局见 structs.wgsl）。
+ * 轨道相机：观察状态 + 它的 uniform buffer（112 B，布局见 structs.wgsl）+ 出图。
+ *
+ * 内外一致：外面（CameraHandle）只有 `camera.listen` 能拿到画面，里面也把
+ * 渲染藏在这一层 —— `Frame` 是相机的私有实现，外部只调 `listen` / `renderFrame`。
  *
  * 和 Background 一样是「一份状态 + 它的 GPU 镜像」：相机自己知道参数变化了
  * 没有，脏了就写 buffer，调用方只看返回值决定要不要重置累积。
@@ -16,6 +23,11 @@ import { Mat4 } from '../math/mat4';
 export class Camera {
     public readonly buffer: GPUBuffer;
     private readonly device: GPUDevice;
+    /** 相机的渲染器；画面只从这里出。 */
+    private readonly frame: Frame;
+    /** 正在往哪里推画面；null = 没人监听。 */
+    private listener: Listener | null = null;
+    private listenTimer: ReturnType<typeof setTimeout> | null = null;
     private dirty = true;
     private target: Vec3 = { x: 0, y: 0, z: 0 };
     private orbitDist = 5;
@@ -32,13 +44,14 @@ export class Camera {
     private renderWidth = 800;
     private renderHeight = 600;
 
-    constructor(context: RenderContext) {
+    constructor(context: RenderContext, model: Model, background: Background) {
         this.device = context.device;
         this.buffer = this.device.createBuffer({
             size: 112,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             label: 'camera-uniform',
         });
+        this.frame = new Frame(context, model, this, background);
         context.onResize((w, h) => this.setResolution(w, h));
     }
 
@@ -68,6 +81,47 @@ export class Camera {
 
         this.device.queue.writeBuffer(this.buffer, 0, buf);
         return true;
+    }
+
+    /**
+     * 按间隔把当前画面推出去 —— 画面是相机的输出，所以推送也挂在相机上。
+     *
+     * 和主线程的 `CameraHandle.listen` 同一个语义：渲染比间隔慢时不重复推
+     * 同一帧，返回取消函数。同一时刻只允许一个监听者。
+     */
+    public listen(intervalMs: number, onFrame: (frame: ImageBitmap) => void): () => void {
+        if (this.listener) throw new Error('Camera.listen：已经有一个监听者');
+        const listener: Listener = { intervalMs: Math.max(1, intervalMs), onFrame, lastSent: -1 };
+        this.listener = listener;
+        this.deliver(listener);
+        return () => {
+            if (this.listener !== listener) return;
+            this.stopListening();
+        };
+    }
+
+    /** 提交一帧（渲染循环驱动）。 */
+    public renderFrame(): boolean {
+        return this.frame.renderFrame();
+    }
+
+    /** 这一帧还能不能提交 —— 渲染循环的节流判断。 */
+    public get readyForNextFrame(): boolean {
+        return this.frame.readyForNextFrame;
+    }
+
+    /** 上一帧是否重开了累积 —— 渲染循环据此切换采样预算档位。 */
+    public get restarted(): boolean {
+        return this.frame.restarted;
+    }
+
+    /** 每帧 GPU 预算（毫秒）。 */
+    public setTargetFrameMs(ms: number): void {
+        this.frame.setTargetFrameMs(ms);
+    }
+
+    public stats(elapsedMs: number): FrameStats {
+        return this.frame.stats(elapsedMs);
     }
 
     public eye(): Vec3 {
@@ -154,7 +208,36 @@ export class Camera {
     }
 
     public destroy(): void {
+        this.stopListening();
+        this.frame.destroy();
         this.buffer?.destroy();
+    }
+
+    private deliver(listener: Listener): void {
+        if (this.listener !== listener) return;
+        try {
+            const count = this.frame.frameCount;
+            if (count !== listener.lastSent) {
+                const bitmap = this.frame.capture();
+                if (bitmap) {
+                    listener.lastSent = count;
+                    listener.onFrame(bitmap);
+                }
+            }
+        } finally {
+            // 回调里可能已经取消了监听：只有还挂着才排下一次
+            if (this.listener === listener) {
+                this.listenTimer = setTimeout(() => this.deliver(listener), listener.intervalMs);
+            }
+        }
+    }
+
+    private stopListening(): void {
+        this.listener = null;
+        if (this.listenTimer !== null) {
+            clearTimeout(this.listenTimer);
+            this.listenTimer = null;
+        }
     }
 
     private computeEye(): Vec3 {
@@ -168,4 +251,11 @@ export class Camera {
             this.target.z + this.orbitDist * sp * st,
         );
     }
+}
+
+interface Listener {
+    readonly intervalMs: number;
+    readonly onFrame: (frame: ImageBitmap) => void;
+    /** 上一次推出去的是第几帧。 */
+    lastSent: number;
 }

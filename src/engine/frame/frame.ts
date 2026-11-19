@@ -33,6 +33,8 @@ export class Frame {
     private readonly pathTracePass: PathTracePass;
     private readonly display: Display;
     private readonly timer: GpuTimer;
+    /** 已提交的帧数 —— 相机靠它判断画布上有没有新画面可推。 */
+    private submittedFrames = 0;
 
     constructor(context: RenderContext, model: Model, camera: Camera, background: Background) {
         this.context = context;
@@ -52,6 +54,29 @@ export class Frame {
             fps: elapsedMs > 0 ? 1000 / elapsedMs : 0,
             samplingMs: this.timer.lastSamplingMs,
         };
+    }
+
+    /** 已提交的帧数。 */
+    public get frameCount(): number {
+        return this.submittedFrames;
+    }
+
+    /**
+     * 把画布上最近一次呈现的画面搬成位图。
+     *
+     * 只有 OffscreenCanvas（Worker 里）支持；还没提交过任何一帧时返回 null，
+     * 调用方等下一次。
+     */
+    public capture(): ImageBitmap | null {
+        if (this.submittedFrames === 0) return null;
+        const canvas = this.context.canvas();
+        if (typeof OffscreenCanvas === 'undefined' || !(canvas instanceof OffscreenCanvas)) return null;
+        try {
+            return canvas.transferToImageBitmap();
+        } catch {
+            // 画布还没呈现过任何一帧
+            return null;
+        }
     }
 
     /** 每帧 GPU 预算（毫秒），由 RenderLoop 按实测显示器刷新率下发。 */
@@ -92,6 +117,7 @@ export class Frame {
 
         this.context.device.queue.submit([encoder.finish()]);
         this.timer.afterSubmit();
+        this.submittedFrames++;
 
         return true;
     }

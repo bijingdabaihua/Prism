@@ -4,7 +4,6 @@ import type { RenderSurface } from './context';
 import { Background } from './background';
 import { Model } from './model/model';
 import { Camera } from './camera';
-import { Frame } from './frame/frame';
 import { RenderLoop } from './loop';
 
 /** 拿不到 WebGPU 设备 —— 调用方据此走降级页，而不是当成普通错误。 */
@@ -71,7 +70,6 @@ export class Engine {
     public readonly camera: Camera;
     public readonly background: Background;
     public readonly model: Model;
-    public readonly frame: Frame;
     public readonly loop: RenderLoop;
     /** destroy() 之后为 true：设备已经还回去了，任何组件都不能再提交。 */
     public destroyed = false;
@@ -80,11 +78,11 @@ export class Engine {
 
     private constructor(device: GPUDevice, canvas: RenderSurface) {
         this.context = new RenderContext(device, canvas);
-        this.camera = new Camera(this.context);
         this.background = new Background(device);
         this.model = new Model(device);
-        this.frame = new Frame(this.context, this.model, this.camera, this.background);
-        this.loop = new RenderLoop(this.frame);
+        // 相机持有自己的渲染器：画面从相机出，帧循环也只认它这一个来源
+        this.camera = new Camera(this.context, this.model, this.background);
+        this.loop = new RenderLoop(this.camera);
     }
 
     /**
@@ -110,7 +108,7 @@ export class Engine {
         this.loop.stop();
         this.model.destroy();
         this.background.destroy();
-        this.frame.destroy();
+        // 相机连同它内部的 Frame 一起销毁
         this.camera.destroy();
     }
 

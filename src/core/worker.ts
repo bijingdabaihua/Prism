@@ -37,13 +37,11 @@ let sceneView: CameraView | null = null;
 /** 最近一次视口尺寸。引擎重建后要重放，否则新上下文是 0×0。 */
 let viewport: ViewportSize | null = null;
 
-/** 已提交的帧数；listen 靠它判断有没有新画面可推。 */
-let frameSeq = 0;
-/** 上一次推出去的是第几帧。 */
-let lastSentSeq = -1;
+/** 是否在往主线程推画面。换引擎后要重新挂到新相机上。 */
 let listening = false;
 let listenInterval = 1;
-let listenTimer: ReturnType<typeof setTimeout> | null = null;
+/** 当前相机 listen 的取消函数；没有引擎时是 null。 */
+let detachFrames: (() => void) | null = null;
 
 const DEFAULT_VIEW: CameraView = {
     target: { x: 0, y: 0, z: 0 },
@@ -103,11 +101,7 @@ async function handleInit(id: number): Promise<void> {
 
 /** 装配一个引擎；换场景 / 首次初始化都走这条。 */
 function makeEngine(): Engine {
-    const next = Engine.fromDevice(device!, surface!);
-    next.loop.setOnFrame(() => {
-        frameSeq++;
-    });
-    return next;
+    return Engine.fromDevice(device!, surface!);
 }
 
 /**
@@ -160,8 +154,8 @@ async function handleSetScene(id: number, key: string): Promise<void> {
 
         sceneView = scene.camera;
         stats = countScene(scene);
-        // 场景换了，之前推出去的画面已经作废：下一次 listen 推新帧
-        lastSentSeq = -1;
+        // 旧引擎的推送随 release() 停了，新相机要重新挂上
+        if (listening) attachFrames();
         reply(id, undefined);
     } catch (err) {
         failure(id, err instanceof Error ? err.message : String(err));
@@ -211,38 +205,27 @@ function handleCamera(command: CameraCommand): void {
 /**
  * 画面推送。
  *
- * 定时器只负责「到点了」；画布上是不是新画面由 frameSeq 判断 —— 渲染
- * 比间隔慢的时候不重复推同一帧。transferToImageBitmap 会把画布内容搬进
- * 位图（之后画布清空，下一帧渲染再填满），ImageBitmap 转移给主线程。
+ * 画面是相机的输出：Worker 这边不自己管定时器和「有没有新帧」，只把
+ * 主线程的 listen 原样转给引擎里的相机 —— 内外同一套语义。
  */
 function startListening(intervalMs: number): void {
-    stopListening();
     listening = true;
     listenInterval = Math.max(1, intervalMs);
-    lastSentSeq = -1;
-    deliverFrame();
+    attachFrames();
+}
+
+function attachFrames(): void {
+    detachFrames?.();
+    detachFrames =
+        engine?.camera.listen(listenInterval, (bitmap) => {
+            scope.postMessage({ type: 'frame', bitmap }, [bitmap]);
+        }) ?? null;
 }
 
 function stopListening(): void {
     listening = false;
-    if (listenTimer !== null) {
-        clearTimeout(listenTimer);
-        listenTimer = null;
-    }
-}
-
-function deliverFrame(): void {
-    if (!listening || !surface) return;
-    if (frameSeq !== lastSentSeq) {
-        try {
-            const bitmap = surface.transferToImageBitmap();
-            lastSentSeq = frameSeq;
-            scope.postMessage({ type: 'frame', bitmap }, [bitmap]);
-        } catch {
-            // 画布还没呈现过任何一帧：等下一轮
-        }
-    }
-    listenTimer = setTimeout(deliverFrame, listenInterval);
+    detachFrames?.();
+    detachFrames = null;
 }
 
 /** 把最近一次尺寸给引擎 —— 新上下文默认 0×0，不重放就永远跳过渲染。 */

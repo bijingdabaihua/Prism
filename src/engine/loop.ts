@@ -1,4 +1,4 @@
-import type { Frame, FrameStats } from './frame/frame';
+import type { FrameStats } from './frame/frame';
 
 /**
  * 目标预算占实测刷新间隔的比例 —— 两档。
@@ -35,6 +35,19 @@ const KEEPALIVE_POLL_MS = 250;
 const KEEPALIVE_RETRY_MS = 16;
 
 /**
+ * 帧循环眼里的「一帧来源」。
+ *
+ * 相机把渲染器藏在内部，只交出这份调度接口 —— 循环不知道 Frame / 相机的存在。
+ */
+export interface FrameSource {
+    readonly readyForNextFrame: boolean;
+    readonly restarted: boolean;
+    renderFrame(): boolean;
+    setTargetFrameMs(ms: number): void;
+    stats(elapsedMs: number): FrameStats;
+}
+
+/**
  * 帧循环。
  *
  * 只负责「什么时候再渲染一帧」和「每帧的 GPU 预算」，不知道场景、相机、材质的存在。
@@ -53,9 +66,9 @@ export class RenderLoop {
     private keepAliveId: number | null = null;
     /** 最近一次提交帧的时间，用来判断 rAF 是不是停了。 */
     private lastSubmit = 0;
-    private readonly frame: Frame;
+    private readonly frame: FrameSource;
 
-    constructor(frame: Frame) {
+    constructor(frame: FrameSource) {
         this.frame = frame;
         this.boot();
     }
