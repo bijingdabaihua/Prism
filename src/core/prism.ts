@@ -1,14 +1,14 @@
 /**
  * 对外唯一入口 —— 接口草案，暂未接入任何实现。
  *
- * 业务层只认识这一个类：场景按 key 交给 core 内部构建，业务层不碰 IR、
- * 不碰 GPU。实例对外只暴露 camera / background / model 三个只读句柄。
+ * 业务层只认识这一个类，实例对外只暴露 camera / background / model
+ * 三个只读句柄。
  *
  * 当前只定形状，create 是占位。确认接口之后再接 engine / config。
  */
 export class Prism {
     /** 异步工厂：GPU 初始化与场景装载都在这里完成，返回可用的实例。 */
-    public static async create(options: PrismOptions): Promise<Prism> {
+    public static async create(): Promise<Prism> {
         throw new Error('Prism.create is not implemented yet');
     }
 
@@ -20,20 +20,6 @@ export class Prism {
     public declare readonly model: ModelHandle;
 
     private constructor() {}
-}
-
-/** 业务层的场景标识，来自 config 里的 SCENES 清单。 */
-export type SceneKey = string;
-
-export interface PrismOptions {
-    /** 渲染目标。目前只支持主线程的 canvas。 */
-    canvas: HTMLCanvasElement;
-    /** 场景 key。 */
-    scene: SceneKey;
-    /** 覆盖场景自带的机位；不传则用场景作者定的构图。 */
-    camera?: CameraSpec;
-    /** 运行期错误的回调。 */
-    onError?: (err: Error) => void;
 }
 
 /**

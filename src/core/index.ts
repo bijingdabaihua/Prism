@@ -6,8 +6,6 @@
  */
 export { Prism } from './prism';
 export type {
-    SceneKey,
-    PrismOptions,
     CameraSpec,
     CameraHandle,
     BackgroundHandle,
