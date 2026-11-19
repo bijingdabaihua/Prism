@@ -7,7 +7,7 @@
  * 当前只定形状，create 是占位。确认接口之后再接 engine / config。
  */
 export class Prism {
-    /** 异步工厂：GPU 初始化与场景装载都在这里完成，返回可用的实例。 */
+    /** 异步工厂：只完成 GPU 初始化；场景与环境图通过句柄的 setter 配置。 */
     public static async create(): Promise<Prism> {
         throw new Error('Prism.create is not implemented yet');
     }
@@ -57,12 +57,19 @@ export interface CameraHandle {
     pan(deltaX: number, deltaY: number): void;
 }
 
+/** 业务层的场景标识，来自 config 里的 SCENES 清单。 */
+export type SceneKey = string;
+
 export interface BackgroundHandle {
+    /** 设置环境图（URL）。重复调用即换背景。 */
+    setImage(url: string): Promise<void>;
     /** 环境图是否已经装好 —— 也是「场景就绪」的信号。 */
     ready(): boolean;
 }
 
 export interface ModelHandle {
+    /** 装载场景（按 key）。重复调用即换场景。 */
+    setScene(scene: SceneKey): Promise<void>;
     /** 几何是否已经编译好（BVH / buffer 上传完成）。 */
     ready(): boolean;
     /** 场景里的实例数。 */
