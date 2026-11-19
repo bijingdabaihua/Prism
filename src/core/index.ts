@@ -12,6 +12,4 @@ export type {
     CameraHandle,
     BackgroundHandle,
     ModelHandle,
-    RenderStats,
-    ImageExportOptions,
 } from './prism';

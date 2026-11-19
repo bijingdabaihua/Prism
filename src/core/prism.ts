@@ -2,12 +2,12 @@
  * 对外唯一入口 —— 接口草案，暂未接入任何实现。
  *
  * 业务层只认识这一个类：场景按 key 交给 core 内部构建，业务层不碰 IR、
- * 不碰 GPU。一个实例一个场景，换场景销毁重建。
+ * 不碰 GPU。实例对外只暴露 camera / background / model 三个只读句柄。
  *
- * 当前只定形状，所有方法体都是占位。确认接口之后再接 engine / config。
+ * 当前只定形状，create 是占位。确认接口之后再接 engine / config。
  */
 export class Prism {
-    /** 异步工厂：GPU 初始化与场景装载都在这里完成。 */
+    /** 异步工厂：GPU 初始化与场景装载都在这里完成，返回可用的实例。 */
     public static async create(options: PrismOptions): Promise<Prism> {
         throw new Error('Prism.create is not implemented yet');
     }
@@ -20,49 +20,6 @@ export class Prism {
     public declare readonly model: ModelHandle;
 
     private constructor() {}
-
-    /** 开始出帧。重复调用无副作用。 */
-    public start(): void {
-        throw new Error('Prism.start is not implemented yet');
-    }
-
-    /** 停止出帧，保留资源。 */
-    public stop(): void {
-        throw new Error('Prism.stop is not implemented yet');
-    }
-
-    /** 清空累积，从第 1 轮重新采样。 */
-    public reset(): void {
-        throw new Error('Prism.reset is not implemented yet');
-    }
-
-    /** 最近一帧的统计；未出过帧时返回零值。 */
-    public stats(): RenderStats {
-        throw new Error('Prism.stats is not implemented yet');
-    }
-
-    public onStats(cb: (stats: RenderStats) => void): () => void {
-        throw new Error('Prism.onStats is not implemented yet');
-    }
-
-    public onError(cb: (err: Error) => void): () => void {
-        throw new Error('Prism.onError is not implemented yet');
-    }
-
-    /** WebGPU 设备丢失（驱动重置、显存耗尽、页面被回收）。 */
-    public onDeviceLost(cb: () => void): () => void {
-        throw new Error('Prism.onDeviceLost is not implemented yet');
-    }
-
-    /** 把画布当前画面存成图片。 */
-    public exportImage(options?: ImageExportOptions): Promise<Blob> {
-        throw new Error('Prism.exportImage is not implemented yet');
-    }
-
-    /** 释放 device 与全部 GPU 资源。重复调用无副作用。 */
-    public destroy(): void {
-        throw new Error('Prism.destroy is not implemented yet');
-    }
 }
 
 /** 业务层的场景标识，来自 config 里的 SCENES 清单。 */
@@ -126,24 +83,4 @@ export interface ModelHandle {
     instances(): number;
     /** 三角形总数。 */
     triangles(): number;
-}
-
-export interface RenderStats {
-    fps: number;
-    /** 已完成的整轮采样数。 */
-    spp: number;
-    /** 本帧调度的像素数。 */
-    pixels: number;
-    /** 本帧 GPU 总耗时（毫秒）。 */
-    gpuMs: number;
-    /** 其中采样部分的耗时（毫秒）。 */
-    samplingMs: number;
-    width: number;
-    height: number;
-}
-
-export interface ImageExportOptions {
-    type?: 'image/png' | 'image/jpeg' | 'image/webp';
-    /** 有损格式的质量，0~1。 */
-    quality?: number;
 }
