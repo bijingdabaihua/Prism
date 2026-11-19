@@ -16,6 +16,8 @@ export class Prism {
     public declare readonly camera: CameraHandle;
     /** 环境光照：目前只暴露就绪状态。 */
     public declare readonly background: BackgroundHandle;
+    /** 场景几何：已编译的模型。 */
+    public declare readonly model: ModelHandle;
 
     private constructor() {}
 
@@ -115,6 +117,15 @@ export interface CameraHandle {
 export interface BackgroundHandle {
     /** 环境图是否已经装好 —— 也是「场景就绪」的信号。 */
     ready(): boolean;
+}
+
+export interface ModelHandle {
+    /** 几何是否已经编译好（BVH / buffer 上传完成）。 */
+    ready(): boolean;
+    /** 场景里的实例数。 */
+    instances(): number;
+    /** 三角形总数。 */
+    triangles(): number;
 }
 
 export interface RenderStats {
