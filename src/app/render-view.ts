@@ -65,11 +65,6 @@ export class RenderView {
             back.textContent = '← 全部场景';
             stage.appendChild(back);
 
-            const hint = document.createElement('div');
-            hint.className = 'stage-hint';
-            hint.textContent = '实时路径追踪 · 拖动旋转 · 滚轮缩放 · 按 S 保存截图';
-            stage.appendChild(hint);
-
             this.updateLoading('Loading scene...');
             await prism.model.setScene(this.key);
             if (this.disposed) {
@@ -77,8 +72,6 @@ export class RenderView {
                 return;
             }
             this.bindInput();
-            hint.classList.add('shown');
-            setTimeout(() => hint.classList.remove('shown'), 6000);
 
             // 编译完成不等于画面已经铺满：Worker 的采样预算从 4096 像素/帧起步，
             // 页面这边看不到它的帧进度，只能等一小会儿再撤 loading。

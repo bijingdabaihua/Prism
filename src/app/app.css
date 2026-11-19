@@ -326,30 +326,6 @@ canvas:active {
   height: 100%;
 }
 
-.stage-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 28px;
-  transform: translate(-50%, 8px);
-  padding: 7px 16px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.6);
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 0.5s ease,
-    transform 0.5s ease;
-}
-
-.stage-hint.shown {
-  opacity: 1;
-  transform: translate(-50%, 0);
-}
-
 .stage-back {
   position: absolute;
   top: 16px;
