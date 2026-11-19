@@ -1,6 +1,9 @@
 /**
  * 对外唯一入口 —— 接口草案，暂未接入任何实现。
  *
+ * 实际渲染跑在 Worker 里，主线程拿到的只是 RPC 句柄；渲染器本身不需要
+ * canvas，结果从 Worker 里出来。
+ *
  * 业务层只认识这一个类，实例对外只暴露 camera / background / model
  * 三个只读句柄。
  *
@@ -64,16 +67,16 @@ export interface BackgroundHandle {
     /** 设置环境图（URL）。重复调用即换背景。 */
     setImage(url: string): Promise<void>;
     /** 环境图是否已经装好 —— 也是「场景就绪」的信号。 */
-    ready(): boolean;
+    ready(): Promise<boolean>;
 }
 
 export interface ModelHandle {
     /** 装载场景（按 key）。重复调用即换场景。 */
     setScene(scene: SceneKey): Promise<void>;
     /** 几何是否已经编译好（BVH / buffer 上传完成）。 */
-    ready(): boolean;
+    ready(): Promise<boolean>;
     /** 场景里的实例数。 */
-    instances(): number;
+    instances(): Promise<number>;
     /** 三角形总数。 */
-    triangles(): number;
+    triangles(): Promise<number>;
 }
