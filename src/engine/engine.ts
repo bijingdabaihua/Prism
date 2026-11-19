@@ -53,11 +53,6 @@ export async function createDevice(): Promise<GPUDevice> {
  * 它不是「场景」—— 场景是 Scene IR。这里只负责持有生命周期。
  */
 export class Engine {
-    public static async create(canvas: RenderSurface): Promise<Engine> {
-        const device = await createDevice();
-        return new Engine(device, canvas);
-    }
-
     /**
      * 用已有的 device 装配引擎 —— Worker 在 init 时就把设备建好了，
      * 画布后到，不能再申请第二个。
@@ -71,8 +66,6 @@ export class Engine {
     public readonly background: Background;
     public readonly model: Model;
     public readonly loop: RenderLoop;
-    /** destroy() 之后为 true：设备已经还回去了，任何组件都不能再提交。 */
-    public destroyed = false;
     /** release() 之后为 true：渲染资源已经卸掉，只剩设备。 */
     private released = false;
 
@@ -110,13 +103,6 @@ export class Engine {
         this.background.destroy();
         // 相机连同它内部的 Frame 一起销毁
         this.camera.destroy();
-    }
-
-    public destroy(): void {
-        if (this.destroyed) return;
-        this.destroyed = true;
-        this.release();
-        this.context.device.destroy();
     }
 }
 

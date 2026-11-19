@@ -6,20 +6,6 @@ import { GpuTimer } from './gpu-timer';
 import { PathTracePass } from './path-tracing/pathTrace';
 import { Display } from '../display/display';
 
-/** 给 HUD / 外部观察的一帧统计。 */
-export interface FrameStats {
-    /** 已完成的整轮采样数（每个像素的样本数下界）。 */
-    samples: number;
-    /** 本帧调度的像素数。 */
-    pixels: number;
-    /** 本帧 GPU 总耗时（毫秒）；首次测量回来之前为 0。 */
-    gpuMs: number;
-    /** 最近一帧的呈现帧率。 */
-    fps: number;
-    /** 最近一帧「拷贝 + compute」的 GPU 耗时（毫秒），和 gpuMs 的差就是显示 + 提交。 */
-    samplingMs: number;
-}
-
 /**
  * 一帧的提交单元。
  *
@@ -44,16 +30,6 @@ export class Frame {
         this.timer = new GpuTimer(context.device);
         this.timer.onMeasure = (samplingMs, _totalMs, dispatch) =>
             this.pathTracePass.reportFrameTime(samplingMs, dispatch);
-    }
-
-    public stats(elapsedMs: number): FrameStats {
-        return {
-            samples: this.pathTracePass.completedSamples,
-            pixels: this.pathTracePass.lastDispatch,
-            gpuMs: this.timer.lastTotalMs,
-            fps: elapsedMs > 0 ? 1000 / elapsedMs : 0,
-            samplingMs: this.timer.lastSamplingMs,
-        };
     }
 
     /** 已提交的帧数。 */

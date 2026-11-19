@@ -1,5 +1,7 @@
 import type { Scene } from '../ir/scene';
 import { createVaseOnDirt } from './vase-on-dirt';
+import { SCENE_CARDS } from './catalog';
+import type { SceneCard } from './catalog';
 
 /**
  * 场景清单 —— 唯一写场景文件路径的地方。
@@ -19,17 +21,6 @@ export interface SceneEntry {
     scene: SceneSetup;
 }
 
-/** 画廊卡片上展示的东西。和渲染无关，改它不会改变图。 */
-export interface SceneCard {
-    title: string;
-    /** 卡片上的一句话说明 */
-    subtitle: string;
-    /** 卡片上的技术标签，让人一眼看到用了什么 */
-    tags: string[];
-    /** 画廊封面；缺省时卡片显示占位底纹。放在 assets/gallery/<key>.png */
-    cover?: string;
-}
-
 /** 进渲染页之后才用到的东西：场景从哪来、怎么显示。 */
 export interface SceneSetup {
     load: () => Promise<Scene>;
@@ -37,12 +28,7 @@ export interface SceneSetup {
 
 export const SCENES: Record<string, SceneEntry> = {
     'vase-on-dirt': {
-        card: {
-            title: '荒地',
-            subtitle: '青花瓷罐搁在夕阳下的砂土上，一片平地铺到画外，只剩土和光',
-            tags: ['实例化地表', '薄透镜景深', 'glTF 资产'],
-            cover: '/gallery/vase-on-dirt.png',
-        },
+        card: SCENE_CARDS['vase-on-dirt'],
         scene: {
             load: () => createVaseOnDirt('/env/sundowner_overlook_2k.exr'),
         },

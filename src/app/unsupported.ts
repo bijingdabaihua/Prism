@@ -1,4 +1,4 @@
-import type { SceneEntry } from '../config/config';
+import type { SceneCard } from '../core/prism';
 
 /**
  * 降级页：浏览器没有 WebGPU 时替代渲染页。
@@ -13,11 +13,11 @@ const BROWSERS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 export class UnsupportedView {
-    private readonly config: SceneEntry;
+    private readonly card: SceneCard;
     private root: HTMLElement | null = null;
 
-    constructor(config: SceneEntry) {
-        this.config = config;
+    constructor(card: SceneCard) {
+        this.card = card;
     }
 
     public mount(container: HTMLElement): void {
@@ -43,14 +43,14 @@ export class UnsupportedView {
 
         const figure = document.createElement('figure');
         figure.className = 'unsupported-figure';
-        if (this.config.card.cover) {
+        if (this.card.cover) {
             const img = document.createElement('img');
-            img.src = this.config.card.cover;
-            img.alt = this.config.card.title;
+            img.src = this.card.cover;
+            img.alt = this.card.title;
             figure.appendChild(img);
         }
         const caption = document.createElement('figcaption');
-        caption.textContent = `${this.config.card.title} — ${this.config.card.subtitle}`;
+        caption.textContent = `${this.card.title} — ${this.card.subtitle}`;
         figure.appendChild(caption);
         root.appendChild(figure);
 

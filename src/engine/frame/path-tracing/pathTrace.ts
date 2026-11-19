@@ -124,7 +124,7 @@ export class PathTracePass {
         return this.currentWriteView ?? this.outView() ?? null;
     }
 
-    /** 本帧实际调度的像素数（HUD / 预算控制器读取）。 */
+    /** 本帧实际调度的像素数（预算控制器读取）。 */
     public get lastDispatch(): number {
         return this.lastDispatched;
     }

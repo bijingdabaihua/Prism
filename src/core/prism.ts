@@ -1,5 +1,7 @@
 import { RpcClient } from './rpc-client';
 import { PrismUnsupportedError } from './errors';
+import { SCENE_CARDS } from '../config/catalog';
+import type { SceneCard } from '../config/catalog';
 import { RpcCamera } from './handles/camera';
 import { RpcBackground } from './handles/background';
 import { RpcModel } from './handles/model';
@@ -13,6 +15,7 @@ export { PrismUnsupportedError } from './errors';
 export type { CameraSpec, CameraHandle, ViewportSize } from './handles/camera';
 export type { BackgroundHandle } from './handles/background';
 export type { SceneKey, ModelHandle, SceneStats } from './handles/model';
+export type { SceneCard } from '../config/catalog';
 
 /**
  * 门面：起 Worker、装配三个句柄、管生命周期。
@@ -25,6 +28,14 @@ export type { SceneKey, ModelHandle, SceneStats } from './handles/model';
  * 每 interval 毫秒把一帧 ImageBitmap 推回主线程，worker 内部自己持有画布。
  */
 export class Prism {
+    /**
+     * 画廊目录：场景的展示元数据。
+     *
+     * 纯数据，不含 loader，也不创建 Worker —— 画廊和路由在 `create()` 之前
+     * 就要用它。场景本身仍然由 `model.setScene(key)` 在 Worker 里装配。
+     */
+    public static readonly scenes: Readonly<Record<string, SceneCard>> = SCENE_CARDS;
+
     /**
      * 异步工厂：一次调用 = 一个 Worker = 一个独立 GPUDevice。
      *

@@ -1,4 +1,4 @@
-import { Prism } from '../core/prism';
+import { Prism, PrismUnsupportedError } from '../core/prism';
 
 /** 场景编译完之后，再给 Worker 这么久把画面铺满，然后撤 loading。 */
 const LOADING_HOLD_MS = 1500;
@@ -27,9 +27,12 @@ export class RenderView {
     private lastY = 0;
     private pinchDist = 0;
     private readonly key: string;
+    /** 有 WebGPU API、但拿不到设备时交给外层换成降级页。 */
+    private readonly onUnsupported: () => void;
 
-    constructor(key: string) {
+    constructor(key: string, onUnsupported: () => void) {
         this.key = key;
+        this.onUnsupported = onUnsupported;
     }
 
     public async mount(container: HTMLElement): Promise<void> {
@@ -91,6 +94,11 @@ export class RenderView {
             await new Promise<void>((resolve) => setTimeout(resolve, LOADING_HOLD_MS));
             loading.classList.add('hidden');
         } catch (err) {
+            if (this.disposed) return;
+            if (err instanceof PrismUnsupportedError) {
+                this.onUnsupported();
+                return;
+            }
             this.updateLoading(err instanceof Error ? err.message : String(err), true);
             loading.classList.add('error');
         }

@@ -14,7 +14,7 @@ export interface ModelHandle {
      * 装载场景（按 key）。重复调用即换场景。
      *
      * Promise 解决时几何 / 材质已经编译完（位移烘成真几何、BVH 建好、
-     * buffer 上传完），环境光也换成了场景自带的那张。所以不需要 ready()。
+     * buffer 上传完），环境光也换成了场景自带的那张 —— 这就是「场景就绪」。
      *
      * 场景自带机位：`camera` 会跟着换成场景的构图，之后再用
      * `camera.set()` 覆盖。

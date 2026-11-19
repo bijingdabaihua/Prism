@@ -70,9 +70,6 @@ scope.onmessage = (event: MessageEvent<WorkerRequest>) => {
         case 'background/setImage':
             enqueue(() => handleSetImage(request.id, request.url));
             return;
-        case 'background/ready':
-            reply(request.id, engine?.background.hasEnvironment() ?? false);
-            return;
         case 'model/setScene':
             enqueue(() => handleSetScene(request.id, request.key));
             return;

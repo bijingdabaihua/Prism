@@ -1,5 +1,3 @@
-import type { FrameStats } from './frame/frame';
-
 /**
  * 目标预算占实测刷新间隔的比例 —— 两档。
  *
@@ -44,7 +42,6 @@ export interface FrameSource {
     readonly restarted: boolean;
     renderFrame(): boolean;
     setTargetFrameMs(ms: number): void;
-    stats(elapsedMs: number): FrameStats;
 }
 
 /**
@@ -55,8 +52,6 @@ export interface FrameSource {
 export class RenderLoop {
     public running = false;
     private animFrameId: number | null = null;
-    private onFrame?: FrameCallback;
-    private lastFrameTime = 0;
     /** boot/stop 代际号：防止 stop 之后旧的 rAF 链继续跑。 */
     private generation = 0;
     /** 实测的刷新间隔（毫秒），每帧的预算按它乘比例算。 */
@@ -84,7 +79,6 @@ export class RenderLoop {
             if (!this.running || generation !== this.generation) return;
             this.refreshMs = refreshMs;
             this.frame.setTargetFrameMs(refreshMs * RESPONSIVE_RATIO);
-            this.lastFrameTime = 0;
             this.tick(generation);
         });
     }
@@ -97,10 +91,6 @@ export class RenderLoop {
             this.animFrameId = null;
         }
         this.setKeepRunning(false);
-    }
-
-    public setOnFrame(cb?: FrameCallback): void {
-        this.onFrame = cb;
     }
 
     /**
@@ -191,17 +181,9 @@ export class RenderLoop {
                 this.refreshMs * (this.frame.restarted ? RESPONSIVE_RATIO : ACCUMULATING_RATIO),
             );
 
-            const prev = this.lastFrameTime;
-            const now = performance.now();
-            this.lastFrameTime = now;
-            this.lastSubmit = now;
-            if (prev !== 0) {
-                this.onFrame?.(this.frame.stats(now - prev));
-            }
+            this.lastSubmit = performance.now();
         }
 
         this.animFrameId = requestAnimationFrame(() => this.tick(generation));
     }
 }
-
-export type FrameCallback = (stats: FrameStats) => void;

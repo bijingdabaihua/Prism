@@ -3,7 +3,6 @@ import type { CameraView } from '../ir/camera';
 import type { RenderContext } from './context';
 import type { Model } from './model/model';
 import type { Background } from './background';
-import type { FrameStats } from './frame/frame';
 import { Frame } from './frame/frame';
 import { vec3, normalize, cross, sub, add, scale } from '../math/vec3';
 import { Mat4 } from '../math/mat4';
@@ -118,10 +117,6 @@ export class Camera {
     /** 每帧 GPU 预算（毫秒）。 */
     public setTargetFrameMs(ms: number): void {
         this.frame.setTargetFrameMs(ms);
-    }
-
-    public stats(elapsedMs: number): FrameStats {
-        return this.frame.stats(elapsedMs);
     }
 
     public eye(): Vec3 {

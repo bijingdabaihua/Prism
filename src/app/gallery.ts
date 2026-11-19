@@ -1,4 +1,4 @@
-import { SCENES } from '../config/config';
+import { Prism } from '../core/prism';
 
 /**
  * 画廊 —— 打开就能看到的东西。一张卡片一个场景，点进去实时渲染。
@@ -27,7 +27,7 @@ export class GalleryView {
             root.appendChild(notice);
         }
 
-        const keys = Object.keys(SCENES);
+        const keys = Object.keys(Prism.scenes);
         const grid = document.createElement('div');
         grid.className = 'grid';
         for (let i = 0; i < keys.length; i++) {
@@ -37,7 +37,7 @@ export class GalleryView {
 
         const foot = document.createElement('footer');
         foot.className = 'gallery-foot';
-        foot.textContent = '每张图都是实时渲染：左键拖拽旋转 · 滚轮缩放 · 右键拖拽平移 · 按 S 保存截图';
+        foot.textContent = '每张图都是实时渲染：左键拖拽旋转 · 滚轮缩放 · 右键拖拽平移';
         root.appendChild(foot);
 
         container.appendChild(root);
@@ -50,7 +50,7 @@ export class GalleryView {
     }
 
     private buildCard(key: string, index: number): HTMLElement {
-        const info = SCENES[key].card;
+        const info = Prism.scenes[key];
         const card = document.createElement('a');
         card.className = 'card';
         card.href = `#/render/${key}`;

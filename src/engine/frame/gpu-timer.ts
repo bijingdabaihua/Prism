@@ -43,10 +43,6 @@ const SLOT_COUNT = 3;
 export class GpuTimer {
     /** 每次测量完成时回调（异步，通常比提交晚 1–2 帧）。 */
     public onMeasure?: (samplingMs: number, totalMs: number, dispatch: number) => void;
-    /** 最近一次总耗时（毫秒），HUD 读取。 */
-    public lastTotalMs = 0;
-    /** 最近一次「拷贝 + compute」耗时（毫秒），HUD 读取。 */
-    public lastSamplingMs = 0;
 
     /**
      * 还能不能再提交一帧。
@@ -154,9 +150,7 @@ export class GpuTimer {
                 this.inFlight--;
                 if (t2 <= t0 || t1 < t0) return;
                 const samplingMs = (t1 - t0) / 1e6;
-                this.lastTotalMs = (t2 - t0) / 1e6;
-                this.lastSamplingMs = samplingMs;
-                this.onMeasure?.(samplingMs, this.lastTotalMs, pending.dispatch);
+                this.onMeasure?.(samplingMs, (t2 - t0) / 1e6, pending.dispatch);
             })
             .catch(() => {
                 pending.slot.busy = false;
@@ -183,7 +177,6 @@ export class GpuTimer {
                 this.fallbackBusy = false;
                 const ms = performance.now() - start;
                 if (dispatch > 0 && ms > 0) {
-                    this.lastTotalMs = ms;
                     this.onMeasure?.(ms, ms, dispatch);
                 }
             })
