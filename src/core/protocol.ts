@@ -58,10 +58,11 @@ export type WorkerRequest =
     /** 开始按间隔把画面推回主线程。 */
     | { type: 'listen/start'; intervalMs: number }
     | { type: 'listen/stop' }
-    | { type: 'background/setImage'; id: number; url: string }
+    /** 换环境图；rotation 是绕 +y 的弧度，省略 = 原图方向。 */
+    | { type: 'background/setImage'; id: number; url: string; rotation?: number }
     | { type: 'background/setRotation'; id: number; rotation: number }
-    /** 装载场景：读清单 → 造 Scene IR → 编译几何 / 材质。 */
-    | { type: 'model/setScene'; id: number; key: SceneKey };
+    /** 装载场景几何：读清单 → 造 Instance → 编译材质 / BVH。 */
+    | { type: 'model/load'; id: number; key: SceneKey };
 
 /** Worker → 主线程。 */
 export type WorkerResponse =

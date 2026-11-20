@@ -9,8 +9,8 @@
  * 从这里插进渲染器，其余 core 代码不认识任何具体场景。
  *
  * 运行态全部挂在 `WorkerHost` 一个实例上。消息语义沉到 Engine —— 机位命令和
- * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`；顶层只留
- * 「跨引擎」的东西：引擎本身、换场景编排、串行队列、回执。
+ * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`，几何委托
+ * `engine.setInstances`；顶层只留引擎本身、串行队列和回执。
  */
 import type { CameraCommand, WorkerRequest, WorkerResponse } from './protocol';
 import { WebGPUUnavailableError } from './engine/context';
@@ -19,17 +19,14 @@ import { loadImage } from './ir/image';
 import { SCENES } from '../app/scenes/manifest';
 
 /**
- * Worker 的运行态。
+ * Worker 的运行态：一个引擎 + 一条串行队列。
  *
- * 换场景只换 `engine` 这一个字段；画面监听是「跨引擎」状态，换引擎后重挂到
- * 新相机上。消息里凡是「引擎自己会」的（机位、监听、环境图）都委托下去，
- * 「跨引擎」的（监听开关、换场景、回执）留在这里。
+ * 消息里凡是「引擎自己会」的（机位、监听、环境图、几何）都委托下去；
+ * 顶层只负责把异步操作排好队、把结果回执出去。
  */
 class WorkerHost {
-    /** 渲染引擎：init 时建，model/setScene 时整个换掉。 */
+    /** 渲染引擎：init 时建，Prism 生命周期内唯一一个。 */
     private engine: Engine | null = null;
-    /** 推送间隔；null = 没在推。换引擎后要重新挂到新相机上。 */
-    private listenInterval: number | null = null;
     /** 异步任务的串行链。 */
     private taskChain: Promise<void> = Promise.resolve();
 
@@ -50,21 +47,19 @@ class WorkerHost {
                 this.applyCamera(request.command);
                 return;
             case 'listen/start':
-                this.listenInterval = Math.max(1, request.intervalMs);
-                this.engine?.camera.startListening(this.listenInterval, postFrame);
+                this.engine?.camera.startListening(Math.max(1, request.intervalMs), postFrame);
                 return;
             case 'listen/stop':
-                this.listenInterval = null;
                 this.engine?.camera.stopListening();
                 return;
             case 'background/setImage':
-                this.enqueue(() => this.setImage(request.id, request.url));
+                this.enqueue(() => this.setImage(request.id, request.url, request.rotation));
                 return;
             case 'background/setRotation':
                 this.enqueue(() => this.setRotation(request.id, request.rotation));
                 return;
-            case 'model/setScene':
-                this.enqueue(() => this.setScene(request.id, request.key));
+            case 'model/load':
+                this.enqueue(() => this.loadModel(request.id, request.key));
                 return;
         }
     }
@@ -83,17 +78,17 @@ class WorkerHost {
      * 换环境图：URL → 解码 → 上传。
      *
      * URL 相对 **Worker 脚本**解析，不是相对页面 —— 所以调用方要给根路径
-     * （`/env/xxx.exr`）或绝对 URL。这条路径不给旋转角度，原图原样使用；
-     * 场景里的太阳对齐走 `Scene.envRotation`。
+     * （`/env/xxx.exr`）或绝对 URL。`rotation` 是绕 +y 的弧度，省略则原图原样
+     * 使用。
      *
      * 引擎已经在跑时也可以换：Background.version() 变化会让 PathTracePass 在
      * 下一帧重建 bind group 并清零累积。解码留在顶层（loadImage 是 ir 的
      * 入口），解码后的 Image 才交给引擎。
      */
-    private async setImage(id: number, url: string): Promise<void> {
+    private async setImage(id: number, url: string, rotation?: number): Promise<void> {
         try {
             if (!this.engine) throw new Error('Prism 还没初始化');
-            this.engine.background.setImage(await loadImage(url));
+            this.engine.background.setImage(await loadImage(url), rotation);
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));
@@ -117,39 +112,19 @@ class WorkerHost {
     }
 
     /**
-     * 装场景：清单查表 → 造 Scene IR → 编译 → 换引擎。
+     * 装载场景几何：清单查表 → 造 Instance → 交给引擎编译。
      *
-     * 换场景 = 重建引擎（`Engine.create()` 全新装配一套设备 + 画布）：
-     * Model.compile 只能调用一次，PathTracePass 的 bind group 也绑死在那一份
-     * buffer 上。release() 只卸渲染资源，旧的设备 / 画布由 GC 回收。
-     *
-     * 换场景失败时旧场景原样保留 —— 新引擎编译成功之前不动旧的。
+     * 机位和环境图不在这条消息里 —— 外部按自己的顺序调 `camera.set` /
+     * `background.setImage`，引擎等三者都到位才出图。
      */
-    private async setScene(id: number, key: string): Promise<void> {
+    private async loadModel(id: number, key: string): Promise<void> {
         try {
             if (!this.engine) throw new Error('Prism 还没初始化');
-            const load = SCENES[key];
-            if (!load) {
+            const build = SCENES[key];
+            if (!build) {
                 throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
             }
-
-            const scene = await load();
-            const next = await Engine.create();
-            try {
-                next.setScene(scene);
-            } catch (err) {
-                next.release();
-                throw err;
-            }
-            // 新上下文是 0×0：接上旧引擎当前的尺寸，否则新场景永远不渲染
-            const width = this.engine.context.width();
-            const height = this.engine.context.height();
-            this.engine.release();
-            this.engine = next;
-            next.context.setSize(width, height);
-
-            // 换引擎后监听要重新挂到新相机上（间隔是跨引擎状态）
-            if (this.listenInterval !== null) next.camera.startListening(this.listenInterval, postFrame);
+            this.engine.setInstances(await build());
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));

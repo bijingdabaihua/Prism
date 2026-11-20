@@ -21,8 +21,8 @@ export interface CameraHandle {
     /**
      * 直接指定机位（完整一格，不是增量）。
      *
-     * 注意顺序：`model.setScene()` 会把机位重置成场景自带的那一格，
-     * 所以想用自定义机位，要在装完场景之后再 `set`。
+     * 外部装场景的顺序通常是 `set` → `background.setImage` → `model.load`；
+     * 装载几何不会改机位。
      */
     set(spec: CameraSpec): void;
     /**

@@ -1,9 +1,9 @@
 /**
  * 相机 IR：场景作者指定的机位。
  *
- * 构图是场景的一部分 —— 同一个场景换一套参数就是另一张图，所以它跟着
- * Scene 走（`Scene.camera`），由场景构建器给出。引擎侧的 Camera 把这份
- * 描述变成轨道参数和 112 B uniform；之后鼠标怎么转，是观察者的事。
+ * 构图是场景的一部分 —— 同一个场景换一套参数就是另一张图，所以它由场景
+ * 作者给出，外部装场景时第一个交给引擎。引擎侧的 Camera 把这份描述变成
+ * 轨道参数和 112 B uniform；之后鼠标怎么转，是观察者的事。
  */
 export interface CameraView {
     target: { x: number; y: number; z: number };

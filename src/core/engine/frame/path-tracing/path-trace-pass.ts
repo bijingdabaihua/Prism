@@ -184,9 +184,9 @@ export class PathTracePass {
         }
         if (!this.width || !this.height) return;
 
-        // 场景还没送到（仍在加载）：没有光源，几何 / 材质也不存在，bind group 建不起来。
-        // 场景只装一次，环境图到位就等于 Model、材质、贴图全部编译完。
-        if (!bg.hasEnvironment()) return;
+        // 外部按「机位 → 环境图 → 几何」装场景，任一样还没到就画不了：没有光源，
+        // 或者 Model、材质、贴图还没编译，bind group 建不起来。
+        if (!bg.hasEnvironment() || !this.model.ready()) return;
 
         // 相机动了 → 清空累加、游标归零（采样预算保留，成本没有变）
         if (cameraChanged) this.requestReset();

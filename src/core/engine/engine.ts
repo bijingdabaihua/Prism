@@ -1,4 +1,4 @@
-import type { Scene } from '../ir/scene';
+import type { Instance } from '../ir/instance';
 import type { RenderSurface } from './context';
 import { RenderContext, createDevice } from './context';
 import { Background } from './background';
@@ -7,17 +7,16 @@ import { Camera } from './camera';
 import { RenderLoop } from './loop';
 
 /**
- * 组装根：把 GPU 上下文、场景、相机、帧循环拼起来。
+ * 组装根：把 GPU 上下文、模型、环境图、相机、帧循环拼起来。
  *
- * 它不是「场景」—— 场景是 Scene IR。这里只负责持有生命周期。
+ * 它不拥有「场景」这个概念 —— 机位、环境图、几何分别从三个接口进来，
+ * 这里只负责持有生命周期。
  */
 export class Engine {
     /**
      * 装配引擎 —— 唯一的工厂入口：自己申请设备、建离屏画布。
      *
-     * Worker 初始化（init 消息）和换场景都走这条 —— 每次装配都是全新的一套，
-     * 不复用上一套的设备 / 画布（旧 engine release() 后由 GC 回收）。
-     *
+     * 一个 Prism 实例只有一套引擎；场景的机位、环境图、几何随后分别送进来。
      * Engine 只活在 Worker 里，画布直接 new OffscreenCanvas；主线程不碰这个类。
      */
     public static async create(): Promise<Engine> {
@@ -43,20 +42,18 @@ export class Engine {
     }
 
     /**
-     * 装载场景 IR —— 引擎认识世界的唯一入口。GPU 侧不解析任何东西，
-     * 只接收已经准备好的数据：几何、光源、机位都从 Scene 里来。
+     * 编译场景几何 —— 引擎认识世界的入口之一。GPU 侧不解析任何东西，
+     * 只接收已经准备好的 Instance；材质、位移、BVH 都在 Model.compile 里。
+     *
+     * 机位和环境图各走 `camera.applyView` / `background.setImage`，三者的
+     * 先后由外部决定 —— PathTracePass 等两边都到位才建 bind group。
      */
-    public setScene(scene: Scene): void {
-        // 顺序是契约：先编译几何 / 材质，最后送环境图 —— 后者到位等于「场景就绪」，
-        // PathTracePass 靠它决定能不能建 bind group。
-        this.model.compile(scene.instances);
-        this.background.setImage(scene.env, scene.envRotation);
-
-        this.camera.applyView(scene.camera);
+    public setInstances(instances: Instance[]): void {
+        this.model.compile(instances);
     }
 
     /**
-     * 卸掉这一套渲染资源，但保留设备 —— Worker 换场景时用：引擎重建，
+     * 卸掉这一套渲染资源，但保留设备 —— Prism.dispose 时用：引擎销毁，
      * 设备是 Worker 的，不能跟着死。
      */
     public release(): void {

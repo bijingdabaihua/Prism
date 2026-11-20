@@ -9,9 +9,9 @@ import { MaterialStore } from './material/material-store';
 /**
  * Model —— 场景的 GPU 形态：一组 buffer。
  *
- * 和 `ir/scene.ts` 的 `Scene` 是同一样东西的两面：`Scene` 是 CPU 侧的描述
- * （Instance IR），这里是它编译出来的 GPU 数据。render 层只认识这一面，
- * 不碰任何 CPU 侧的几何对象。
+ * 和 `ir/instance.ts` 的 `Instance` 是同一样东西的两面：Instance 是 CPU 侧的
+ * 描述，这里是它编译出来的 GPU 数据。render 层只认识这一面，不碰任何 CPU
+ * 侧的几何对象。
  *
  * 这里的 model 指「场景在 GPU 这边的模型」，不是 `assets/model/` 下那个
  * glTF 资产 —— 后者是 Mesh / Instance 的事。
@@ -284,6 +284,7 @@ export class Model {
     public triangles!: GPUBuffer;
     /** 实例表：36 floats/instance（blas_node_offset + transform + inv_transform） */
     public instanceBuffer!: GPUBuffer;
+    private compiled = false;
     private readonly device: GPUDevice;
     private readonly materialStore: MaterialStore;
 
@@ -292,16 +293,20 @@ export class Model {
         this.materialStore = new MaterialStore(device);
     }
 
+    /** 几何 / 材质是否已经编译上 GPU。PathTracePass 靠它决定能不能建 bind group。 */
+    public ready(): boolean {
+        return this.compiled;
+    }
+
     /**
      * 编译场景 —— 整个生命里只调一次。
      *
-     * 一个 Engine 只装载一个场景：换场景就换 Engine，所以这里没有增量更新、
+     * 一个 Engine 只装载一份几何：换场景就换 Prism，所以这里没有增量更新、
      * 没有脏标记、没有 buffer 复用，一次把整条链走完。`compile()` 之前这四个
-     * buffer 都不存在 —— PathTracePass 以 `Background.hasEnvironment()` 作闸门，
-     * 而 Engine.setScene 最后才设环境图，读到的永远是编译完的 Model。
+     * buffer 都不存在 —— PathTracePass 等 `ready()` 才建 bind group。
      */
     public compile(insts: Instance[]): void {
-        if (this.nodes) throw new Error('Model: compile 只能调用一次 —— 换场景请换 Engine');
+        if (this.compiled) throw new Error('Model: compile 只能调用一次 —— 换场景请换 Prism');
 
         // 演化：材质上带位移贴图的 instance 在这里换成细分的真几何，
         // 从那以后 GPU 侧既没有位移贴图，也没有「位移」这个概念
@@ -316,6 +321,7 @@ export class Model {
         this.geometry = compiled.geometry;
         this.triangles = compiled.triangles;
         this.instanceBuffer = compiled.instanceBuffer;
+        this.compiled = true;
     }
 
     /** 材质 SSBO，供 bind group 直接绑定。 */

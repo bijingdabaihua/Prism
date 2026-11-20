@@ -20,12 +20,6 @@ import { MeshBuilder } from '../../core/ir/mesh';
 /** 一格贴图覆盖的真实尺寸（米）：资产接口 `dimensions` = [2109.99, 2109.99] mm。 */
 const GROUND_METERS = 2.11;
 
-/**
- * 环境图的太阳方位角：sundowner 36.1°、venice_sunset 35.9°（实测最亮像素
- * 质心），两张图几乎一样。转到相机右后方，影子朝画面左侧扫过去。
- */
-export const ENV_ROTATION = (Math.PI / 180) * (36.1 - 100) + Math.PI - 0.6;
-
 /** 水平四边形，绕序保证法线朝 +y（和 addQuad 的约定一致）。 */
 function groundQuad(x0: number, x1: number, z0: number, z1: number): [Vec3, Vec3, Vec3, Vec3] {
     return [

@@ -1,4 +1,5 @@
 import { Prism, PrismUnsupportedError } from '../core/prism';
+import { SCENE_CARDS } from './scenes/catalog';
 
 /** 场景编译完之后，再给 Worker 这么久把画面铺满，然后撤 loading。 */
 const LOADING_HOLD_MS = 1500;
@@ -158,8 +159,14 @@ export class RenderView {
             back.textContent = '← 全部场景';
             stage.appendChild(back);
 
+            const card = SCENE_CARDS[this.key];
+            if (!card) throw new Error(`没有场景 "${this.key}"`);
+
+            // 场景由外面一步一步装：机位 → 环境图 → 几何 → 开始监听
             this.updateLoading('Loading scene...');
-            await prism.model.setScene(this.key);
+            prism.camera.set(card.setup.camera);
+            await prism.background.setImage(card.setup.env, card.setup.envRotation);
+            await prism.model.load(this.key);
             if (this.disposed) {
                 prism.dispose();
                 return;
