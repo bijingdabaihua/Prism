@@ -28,9 +28,8 @@ import { SCENES } from '../app/scenes/manifest';
 class WorkerHost {
     /** 渲染引擎：init 时建，model/setScene 时整个换掉。 */
     private engine: Engine | null = null;
-    /** 是否在往主线程推画面。换引擎后要重新挂到新相机上。 */
-    private listening = false;
-    private listenInterval = 1;
+    /** 推送间隔；null = 没在推。换引擎后要重新挂到新相机上。 */
+    private listenInterval: number | null = null;
     /** 异步任务的串行链。 */
     private taskChain: Promise<void> = Promise.resolve();
 
@@ -51,12 +50,11 @@ class WorkerHost {
                 this.applyCamera(request.command);
                 return;
             case 'listen/start':
-                this.listening = true;
                 this.listenInterval = Math.max(1, request.intervalMs);
                 this.engine?.camera.startListening(this.listenInterval, postFrame);
                 return;
             case 'listen/stop':
-                this.listening = false;
+                this.listenInterval = null;
                 this.engine?.camera.stopListening();
                 return;
             case 'background/setImage':
@@ -150,8 +148,8 @@ class WorkerHost {
             this.engine = next;
             next.context.setSize(width, height);
 
-            // 换引擎后监听要重新挂到新相机上（listening 是跨引擎状态）
-            if (this.listening) next.camera.startListening(this.listenInterval, postFrame);
+            // 换引擎后监听要重新挂到新相机上（间隔是跨引擎状态）
+            if (this.listenInterval !== null) next.camera.startListening(this.listenInterval, postFrame);
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));
