@@ -12,8 +12,7 @@
  * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`；顶层只留
  * 「跨引擎」的东西：引擎本身、视口尺寸、换场景编排、串行队列、回执。
  */
-import type { Scene } from './ir/scene';
-import type { CameraCommand, SceneStats, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
+import type { CameraCommand, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
 import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';
@@ -29,8 +28,6 @@ import { SCENES } from '../app/scenes/manifest';
 class WorkerHost {
     /** 渲染引擎：init 时建，model/setScene 时整个换掉。 */
     private engine: Engine | null = null;
-    /** 当前场景的规模；没装过场景时为 null。 */
-    private stats: SceneStats | null = null;
     /** 最近一次视口尺寸。换引擎后要重放，否则新上下文是 0×0。 */
     private viewport: ViewportSize | null = null;
     /** 是否在往主线程推画面。换引擎后要重新挂到新相机上。 */
@@ -74,9 +71,6 @@ class WorkerHost {
                 return;
             case 'model/setScene':
                 this.enqueue(() => this.setScene(request.id, request.key));
-                return;
-            case 'model/stats':
-                this.reply(request.id, this.stats);
                 return;
         }
     }
@@ -157,7 +151,6 @@ class WorkerHost {
             this.engine = next;
             this.applyViewport();
 
-            this.stats = countScene(scene);
             // 换引擎后监听要重新挂到新相机上（listening 是跨引擎状态）
             if (this.listening) next.camera.startListening(this.listenInterval, postFrame);
             this.reply(id, undefined);
@@ -218,18 +211,6 @@ class WorkerHost {
     private unsupported(id: number, message: string): void {
         scope.postMessage({ type: 'unsupported', id, message });
     }
-}
-
-/**
- * 场景规模。三角形数按实例展开 —— 位移细分的结果缓存在 mesh 上，
- * 这里读到的就是 Model.compile 实际上传的那份。
- */
-function countScene(scene: Scene): SceneStats {
-    let triangles = 0;
-    for (const inst of scene.instances) {
-        triangles += inst.evolve().mesh.triangleData.length / 4;
-    }
-    return { instances: scene.instances.length, triangles };
 }
 
 /**

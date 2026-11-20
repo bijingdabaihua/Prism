@@ -13,7 +13,7 @@ export { PrismUnsupportedError } from './errors';
 export type { CameraHandle } from './handles/camera';
 export type { BackgroundHandle } from './handles/background';
 export type { ModelHandle } from './handles/model';
-export type { CameraSpec, SceneKey, SceneStats, ViewportSize } from './protocol';
+export type { CameraSpec, SceneKey, ViewportSize } from './protocol';
 
 /**
  * 门面：起 Worker、装配三个句柄、管生命周期。

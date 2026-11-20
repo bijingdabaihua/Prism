@@ -1,5 +1,5 @@
 import type { RpcClient } from '../rpc-client';
-import type { SceneKey, SceneStats } from '../protocol';
+import type { SceneKey } from '../protocol';
 
 /**
  * 模型句柄：契约 + 主线程侧实现。
@@ -18,8 +18,6 @@ export interface ModelHandle {
      * `camera.set()` 覆盖。
      */
     setScene(key: SceneKey): Promise<void>;
-    /** 当前场景的规模；还没装过场景时为 null。 */
-    stats(): Promise<SceneStats | null>;
 }
 
 /** 模型句柄的主线程实现。 */
@@ -28,9 +26,5 @@ export class RpcModel implements ModelHandle {
 
     public setScene(key: SceneKey): Promise<void> {
         return this.rpc.request<void>((id) => ({ type: 'model/setScene', id, key }));
-    }
-
-    public stats(): Promise<SceneStats | null> {
-        return this.rpc.request<SceneStats | null>((id) => ({ type: 'model/stats', id }));
     }
 }

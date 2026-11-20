@@ -14,14 +14,6 @@
 /** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
 export type SceneKey = string;
 
-/** 当前场景的规模。 */
-export interface SceneStats {
-    /** 实例数（同一 mesh 摆多次算多个）。 */
-    instances: number;
-    /** 三角形总数 —— 按实例展开，位移细分之后的数字。 */
-    triangles: number;
-}
-
 /** 渲染视口尺寸（物理像素 = CSS 尺寸 × devicePixelRatio）。 */
 export interface ViewportSize {
     width: number;
@@ -69,9 +61,7 @@ export type WorkerRequest =
     | { type: 'background/setImage'; id: number; url: string }
     | { type: 'background/setRotation'; id: number; rotation: number }
     /** 装载场景：读清单 → 造 Scene IR → 编译几何 / 材质。 */
-    | { type: 'model/setScene'; id: number; key: SceneKey }
-    /** 当前场景规模；没装过时为 null。 */
-    | { type: 'model/stats'; id: number };
+    | { type: 'model/setScene'; id: number; key: SceneKey };
 
 /** Worker → 主线程。 */
 export type WorkerResponse =
