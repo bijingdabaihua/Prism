@@ -191,16 +191,7 @@ function evolveMesh(mesh: Mesh): Mesh {
     const vd = mesh.vertexData;
     const td = mesh.triangleData;
     // 材质副本：位移贴图和相关参数被消耗掉，其余字段一个不少
-    const materials = mesh.materials.map((m) => {
-        if (!m.displacement) return m;
-        const {
-            displacement: _image,
-            displacementMid: _mid,
-            displacementScale: _scale,
-            ...rest
-        } = m;
-        return rest;
-    });
+    const materials = mesh.materials.map((m) => m.withoutDisplacement());
 
     const verts: number[] = [];
     const tris: number[] = [];

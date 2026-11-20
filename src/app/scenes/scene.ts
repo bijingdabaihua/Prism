@@ -4,7 +4,7 @@ import type { Scene } from '../../core/ir/scene';
 import { Instance } from '../../core/ir/instance';
 import { MeshBuilder } from '../../core/geometry/mesh-builder';
 import { placeInstances } from '../../core/geometry/placement';
-import { defaultPBRMaterial } from '../../core/ir/material';
+import { PBRMaterial } from '../../core/ir/material';
 
 interface SceneOptions {
     /** 省略或空数组 → 放一个 1 m 的灰盒子当占位。 */
@@ -50,8 +50,7 @@ export function createScene(options: SceneOptions = {}): Scene {
 function createPlaceholderBox(): Instance {
     const builder = new MeshBuilder();
     builder.addBox(1, 0);
-    const material = defaultPBRMaterial();
-    material.baseColor = { r: 0.3, g: 0.3, b: 0.3, a: 1 };
+    const material = new PBRMaterial({ baseColor: { r: 0.3, g: 0.3, b: 0.3, a: 1 } });
     const box = new Instance(builder.build([material], 'placeholder-box'));
     // 绕 Y 转 35°：正对着看只是一个方块，斜着才看得到两个面的明暗差，
     // 一眼能确认法线、明暗、透视都是对的。

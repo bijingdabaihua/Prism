@@ -1,8 +1,8 @@
-import type { PBRMaterial, TextureKind } from '../ir/material';
 import type { Image } from '../ir/image';
-import { Mesh } from '../ir/mesh';
-import { defaultPBRMaterial } from '../ir/material';
+import type { PBRMaterialOptions, TextureKind } from '../ir/material';
 import { Instance } from '../ir/instance';
+import { PBRMaterial } from '../ir/material';
+import { Mesh } from '../ir/mesh';
 import { loadTexture } from './texture';
 
 /**
@@ -343,7 +343,7 @@ function buildMesh(ctx: LoadContext, gm: GltfMesh, materials: PBRMaterial[], nam
 
         // 材质槽：同一个 PBRMaterial 在一个 mesh 里只占一个下标
         const source = prim.material !== undefined ? materials[prim.material] : undefined;
-        const mat = source ?? defaultPBRMaterial();
+        const mat = source ?? new PBRMaterial();
         let matIdx = meshMaterials.indexOf(mat);
         if (matIdx < 0) {
             matIdx = meshMaterials.length;
@@ -415,7 +415,7 @@ function buildMesh(ctx: LoadContext, gm: GltfMesh, materials: PBRMaterial[], nam
     return new Mesh(
         vertexData,
         triangles,
-        meshMaterials.length > 0 ? meshMaterials : [defaultPBRMaterial()],
+        meshMaterials.length > 0 ? meshMaterials : [new PBRMaterial()],
         gm.name ?? name,
     );
 }
@@ -832,25 +832,26 @@ function occlusionUrl(ctx: LoadContext, index: number): Promise<string | null> {
 // 材质
 
 async function convertMaterial(gm: GltfMaterial, ctx: LoadContext): Promise<PBRMaterial> {
-    const mat = defaultPBRMaterial();
     const pbr = gm.pbrMetallicRoughness ?? {};
-
     const [r, g, b, a] = pbr.baseColorFactor ?? [1, 1, 1, 1];
-    mat.baseColor = { r, g, b, a };
-    mat.metallic = pbr.metallicFactor ?? 1;
-    mat.roughness = pbr.roughnessFactor ?? 1;
+    const options: PBRMaterialOptions = {
+        baseColor: { r, g, b, a },
+        metallic: pbr.metallicFactor ?? 1,
+        roughness: pbr.roughnessFactor ?? 1,
+        normalScale: gm.normalTexture?.scale ?? 1,
+        occlusionStrength: gm.occlusionTexture?.strength ?? 1,
+    };
 
     if (pbr.baseColorTexture) {
-        mat.baseColorTexture = await textureImage(ctx, pbr.baseColorTexture.index, 'albedo');
+        options.baseColorTexture = await textureImage(ctx, pbr.baseColorTexture.index, 'albedo');
     }
     if (gm.normalTexture) {
-        mat.normalTexture = await textureImage(ctx, gm.normalTexture.index, 'normal');
-        mat.normalScale = gm.normalTexture.scale ?? 1;
+        options.normalTexture = await textureImage(ctx, gm.normalTexture.index, 'normal');
     }
     if (pbr.metallicRoughnessTexture) {
         // 整张 RGBA 原样保留：G 是粗糙度、B 是金属度，shader 各取所需。
         // 早先这里只抽出 G 通道、丢掉 B —— 金属度就永远停在标量上。
-        mat.metallicRoughnessTexture = await textureImage(
+        options.metallicRoughnessTexture = await textureImage(
             ctx,
             pbr.metallicRoughnessTexture.index,
             'roughness',
@@ -858,9 +859,8 @@ async function convertMaterial(gm: GltfMaterial, ctx: LoadContext): Promise<PBRM
     }
     if (gm.occlusionTexture) {
         const url = await occlusionUrl(ctx, gm.occlusionTexture.index);
-        if (url) mat.occlusionTexture = await loadTexture(url, 'occlusion');
-        mat.occlusionStrength = gm.occlusionTexture.strength ?? 1;
+        if (url) options.occlusionTexture = await loadTexture(url, 'occlusion');
     }
 
-    return mat;
+    return new PBRMaterial(options);
 }

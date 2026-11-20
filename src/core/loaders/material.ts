@@ -1,6 +1,6 @@
 import type { Image } from '../ir/image';
-import type { PBRMaterial } from '../ir/material';
-import { defaultPBRMaterial } from '../ir/material';
+import type { PBRMaterialOptions } from '../ir/material';
+import { PBRMaterial } from '../ir/material';
 import { loadTexture } from './texture';
 import { loadImage } from './image';
 
@@ -390,37 +390,37 @@ export async function loadBlendMaterial(url: string, meters?: number): Promise<P
         throw new Error(`${url}: 只支持 Principled BSDF，这张材质接的是 ${bsdfType}`);
     }
 
-    const mat = defaultPBRMaterial();
+    const options: PBRMaterialOptions = {};
     const metallic = scalar(blend, surface, 'Metallic');
     const roughness = scalar(blend, surface, 'Roughness');
-    if (metallic !== undefined) mat.metallic = metallic;
-    if (roughness !== undefined) mat.roughness = roughness;
+    if (metallic !== undefined) options.metallic = metallic;
+    if (roughness !== undefined) options.roughness = roughness;
 
     const baseColorTex = tex(blend, baseUrl, surface, 'Base Color');
-    if (baseColorTex) mat.baseColorTexture = await loadTexture(baseColorTex.path, 'albedo', meters);
+    if (baseColorTex) options.baseColorTexture = await loadTexture(baseColorTex.path, 'albedo', meters);
 
     // Roughness 在 Blender 里是 float 插槽，接一张彩色图时按灰度取。我们的
     // roughness 通道读 .r，灰度图三通道同值，等价。
     const roughnessTex = tex(blend, baseUrl, surface, 'Roughness');
     if (roughnessTex) {
-        mat.roughnessTexture = await loadTexture(roughnessTex.path, 'roughness', meters);
-        mat.roughness = 1;
+        options.roughnessTexture = await loadTexture(roughnessTex.path, 'roughness', meters);
+        options.roughness = 1;
     }
 
     const normalTex = tex(blend, baseUrl, surface, 'Normal');
     if (normalTex) {
-        mat.normalTexture = await loadTexture(normalTex.path, 'normal', meters);
-        mat.normalScale = normalTex.strength ?? 1;
+        options.normalTexture = await loadTexture(normalTex.path, 'normal', meters);
+        options.normalScale = normalTex.strength ?? 1;
     }
 
     const height = await displacement(blend, baseUrl, output, meters);
     if (height) {
-        mat.displacement = height.image;
-        mat.displacementMid = height.mid;
-        mat.displacementScale = height.scale;
+        options.displacement = height.image;
+        options.displacementMid = height.mid;
+        options.displacementScale = height.scale;
     }
 
-    return mat;
+    return new PBRMaterial(options);
 }
 
 /** 某个输入插槽接的上游节点。没有连线时返回 undefined。 */
