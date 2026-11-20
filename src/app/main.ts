@@ -1,4 +1,4 @@
-import { Prism } from '../core/prism';
+import { SCENE_CARDS } from './scenes/catalog';
 import { GalleryView } from './gallery';
 import { RenderView } from './render-view';
 import { UnsupportedView } from './unsupported';
@@ -31,7 +31,7 @@ function parseRoute(hash: string): Route {
     }
     const match = raw.match(/^render\/(.+)$/);
     const key = match ? match[1] : raw;
-    if (key in Prism.scenes) {
+    if (key in SCENE_CARDS) {
         return { name: 'render', key };
     }
     return { name: 'gallery', key: '' };
@@ -51,7 +51,7 @@ function show(hash: string): void {
 
     if (route.name === 'render') {
         // 画廊本身就是静态图，没有 WebGPU 也能看；只有渲染页必须降级。
-        const card = Prism.scenes[route.key];
+        const card = SCENE_CARDS[route.key];
         if (!navigator.gpu) {
             const view = new UnsupportedView(card);
             current = view;

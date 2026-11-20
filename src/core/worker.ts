@@ -4,6 +4,9 @@
  * 整个渲染管线（Engine / Camera / Model / Frame）都跑在这个线程里，画布是
  * Worker 自己建的 OffscreenCanvas，主线程从头到尾不碰 GPU。画面通过
  * `camera.listen()` 以 ImageBitmap 推回主线程 —— 每间隔最多一帧。
+ *
+ * 这里也是 core 唯一 import app/ 的地方：场景清单（`app/scenes/manifest`）
+ * 从这里插进渲染器，其余 core 代码不认识任何具体场景。
  */
 import type { Scene } from '../ir/scene';
 import type { CameraView } from '../ir/camera';
@@ -11,7 +14,7 @@ import type { CameraCommand, SceneStats, ViewportSize, WorkerRequest, WorkerResp
 import { createDevice, WebGPUUnavailableError } from '../engine/context';
 import { Engine } from '../engine/engine';
 import { loadImage } from '../config/images/load-image';
-import { SCENES } from '../config/manifest';
+import { SCENES } from '../app/scenes/manifest';
 
 /**
  * Worker 全局作用域的最小声明。

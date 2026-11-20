@@ -1,4 +1,4 @@
-import { Prism } from '../core/prism';
+import { SCENE_CARDS } from './scenes/catalog';
 
 /**
  * 画廊 —— 打开就能看到的东西。一张卡片一个场景，点进去实时渲染。
@@ -27,7 +27,7 @@ export class GalleryView {
             root.appendChild(notice);
         }
 
-        const keys = Object.keys(Prism.scenes);
+        const keys = Object.keys(SCENE_CARDS);
         const grid = document.createElement('div');
         grid.className = 'grid';
         for (let i = 0; i < keys.length; i++) {
@@ -50,7 +50,7 @@ export class GalleryView {
     }
 
     private buildCard(key: string, index: number): HTMLElement {
-        const info = Prism.scenes[key];
+        const info = SCENE_CARDS[key];
         const card = document.createElement('a');
         card.className = 'card';
         card.href = `#/render/${key}`;

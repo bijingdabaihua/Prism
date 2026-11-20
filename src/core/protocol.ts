@@ -11,7 +11,7 @@
  *
  * 和门面之间的类型是纯类型依赖（`import type`），编译后擦除，没有运行时环。
  */
-/** 业务层的场景标识，来自 config/manifest.ts 的 SCENES 清单。 */
+/** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
 export type SceneKey = string;
 
 /** 当前场景的规模。 */
