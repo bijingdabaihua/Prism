@@ -1,4 +1,4 @@
-import type { Color } from '../math/types';
+import type { Color } from '../../math/types';
 import type { Image } from './image';
 
 /**

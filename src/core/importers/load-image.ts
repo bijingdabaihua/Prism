@@ -1,5 +1,5 @@
 import type { Image } from '../ir/image';
-import { srgbToLinear } from '../math/color';
+import { srgbToLinear } from '../../math/color';
 
 /**
  * 图像导入器：文件 → Image IR。

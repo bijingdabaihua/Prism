@@ -72,31 +72,29 @@ Firefox 需要 `dom.webgpu.enabled`。不支持时会落到静态页 —— 渲�
 依赖方向单向，越往下越不认识上面的东西：
 
 ```
-app/     路由、画廊、渲染页、降级页 —— 只 import core/prism
-core/    Prism 门面（主线程）+ Worker 组合根（渲染线程）
-         prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/
-config/  构建 IR：场景清单（manifest.ts）+ 卡片（catalog.ts）+ 导入器 + 几何工具
-         scenes/ 具体场景 · importers/ glTF / blend · images/ 解码 ·
-         geometry/ MeshBuilder 与摆位
-engine/  拿 IR 建可渲染的东西（不按 CPU / GPU 分工）：context / camera /
-         frame（含 path-tracing）/ loop / background（envMap + 亮度 CDF）/
-         display（色调映射 + 暗角 + 颗粒）/ model（model.ts 一条链编译到底：
-         布局 → 节点表 → 打包 → 上传；bvh.ts 建 BLAS；材质子系统在 model/material/）
-ir/      IR 定义：Image / PBRMaterial / Mesh / Instance / Scene / CameraView
-math/    向量、矩阵、颜色
+app/     业务层：路由、画廊、渲染页、降级页 + scenes/ 场景内容
+         —— 主线程只 import core/prism 与 scenes/catalog
+core/    渲染器：门面 + Worker 组合根 + 引擎 + IR 生产 + IR
+         prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/   门面与组合根
+         importers/  glTF / blend / 图像解码 / 环境图旋转（外部资产 → IR）
+         geometry/   MeshBuilder 与 Instance 摆位（程序化几何 → IR）
+         engine/     context / camera / frame（含 path-tracing）/ loop /
+                     background（envMap + 亮度 CDF）/ display / model
+         ir/         Image / PBRMaterial / Mesh / Instance / Scene / CameraView
+math/    向量、矩阵、颜色（app 与 core 共用）
 ```
 
 光追完全跑在 Worker 里：`Prism.create()` 起一个 Worker、要一个独立 `GPUDevice`，
-主线程不碰 GPU，只通过 `camera.listen()` 接收 `ImageBitmap`。`core/worker.ts` 是唯一
-同时 import `engine/` 和 `config/` 的地方。IR 与编译产物分离：`ir/` 下的
-`instance.ts` / `mesh.ts` 是场景描述，`model/model.ts` 里的 buffer 是编译结果。
+主线程不碰 GPU，只通过 `camera.listen()` 接收 `ImageBitmap`。`core/worker.ts` 是
+组合根：唯一同时 import 引擎、导入器和场景清单的地方。IR 与编译产物分离：`ir/`
+下的 `instance.ts` / `mesh.ts` 是场景描述，`model/model.ts` 里的 buffer 是编译结果。
 
 约 8800 行 TypeScript + WGSL + CSS。
 
 ### 加一个场景
 
-`src/config/manifest.ts` 是唯一清单：写一个 `createXxx(): Promise<Scene>` 构建器
-（`config/scenes/` 里单独一个文件），在 `SCENES` 里加一条，在 `catalog.ts` 里
+`app/scenes/manifest.ts` 是唯一清单：写一个 `createXxx(): Promise<Scene>` 构建器
+（`app/scenes/` 里单独一个文件），在 `SCENES` 里加一条，在 `catalog.ts` 里
 加卡片元数据，再放一张 `assets/gallery/<key>.png` 当封面。
 路由、画廊、降级页都会自动带上它。
 
@@ -104,10 +102,10 @@ math/    向量、矩阵、颜色
 
 模型、贴图、环境图都来自 **Poly Haven**（CC0）：模型和材质下载后放进
 `assets/model/`、`assets/textures/`，环境图（EXR）放进 `assets/env/`。
-有些场景是几个模型拼起来的，摆放和取景写在 `src/config/` 里 ——
+有些场景是几个模型拼起来的，摆放和取景写在 `app/scenes/` 里 ——
 引擎不认识具体的模型，只认 `Scene`。
 
-地面这类大面积几何由代码生成 —— `src/config/geometry/mesh-builder.ts` 里的 `MeshBuilder`
+地面这类大面积几何由代码生成 —— `core/geometry/mesh-builder.ts` 里的 `MeshBuilder`
 铺平面，位移贴图挂在材质上：`Mesh.evolve()` 在编译时把带图的三角形细分成真几何、
 顶点抬起、法线按高度场重算，那张图进 GPU 之前就被消耗掉了。
 

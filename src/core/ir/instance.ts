@@ -1,4 +1,4 @@
-import type { Vec3 } from '../math/types';
+import type { Vec3 } from '../../math/types';
 import type { Mesh } from './mesh';
 
 export const INST_FLOATS = 36;

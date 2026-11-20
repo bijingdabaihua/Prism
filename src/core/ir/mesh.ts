@@ -1,4 +1,4 @@
-import type { AABB } from '../math/types';
+import type { AABB } from '../../math/types';
 import type { PBRMaterial } from './material';
 import type { Image } from './image';
 

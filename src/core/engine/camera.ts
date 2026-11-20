@@ -1,11 +1,11 @@
-import type { Vec3 } from '../math/types';
+import type { Vec3 } from '../../math/types';
 import type { CameraView } from '../ir/camera';
 import type { RenderContext } from './context';
 import type { Model } from './model/model';
 import type { Background } from './background';
 import { Frame } from './frame/frame';
-import { vec3, normalize, cross, sub, add, scale } from '../math/vec3';
-import { Mat4 } from '../math/mat4';
+import { vec3, normalize, cross, sub, add, scale } from '../../math/vec3';
+import { Mat4 } from '../../math/mat4';
 
 /**
  * 轨道相机：观察状态 + 它的 uniform buffer（112 B，布局见 structs.wgsl）+ 出图。

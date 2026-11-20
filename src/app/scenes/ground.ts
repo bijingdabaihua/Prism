@@ -1,4 +1,4 @@
-import type { Vec3 } from '../../core/math/types';
+import type { Vec3 } from '../../math/types';
 import type { PBRMaterial } from '../../core/ir/material';
 import { Instance } from '../../core/ir/instance';
 import { MeshBuilder } from '../../core/geometry/mesh-builder';

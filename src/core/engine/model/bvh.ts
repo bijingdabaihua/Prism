@@ -1,4 +1,4 @@
-import type { AABB, Vec3 } from '../../math/types';
+import type { AABB, Vec3 } from '../../../math/types';
 import type { Mesh } from '../../ir/mesh';
 
 class BvhNode {
