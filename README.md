@@ -76,11 +76,12 @@ app/     业务层：路由、画廊、渲染页、降级页 + scenes/ 场景内
          —— 主线程只 import core/prism 与 scenes/catalog
 core/    渲染器：门面 + Worker 组合根 + 引擎 + IR 生产 + IR
          prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/   门面与组合根
-         loaders/    image / texture / equirect / material / gltf —— 外部资产 → IR
+         loaders/    image / texture / equirect / gltf —— 外部资产 → IR
          geometry/   MeshBuilder 与 Instance 摆位（程序化几何 → IR）
          engine/     context / camera / frame（含 path-tracing）/ loop /
                      background（envMap + 亮度 CDF）/ display / model
-         ir/         Image / PBRMaterial / Mesh / Instance / Scene / CameraView
+         ir/         Image / PBRMaterial（含 .blend 解析）/ Mesh / Instance /
+                     Scene / CameraView
 math/    向量、矩阵、颜色（app 与 core 共用）
 ```
 
