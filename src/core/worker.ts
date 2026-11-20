@@ -8,12 +8,12 @@
  * 这里也是 core 唯一 import app/ 的地方：场景清单（`app/scenes/manifest`）
  * 从这里插进渲染器，其余 core 代码不认识任何具体场景。
  */
-import type { Scene } from '../ir/scene';
-import type { CameraView } from '../ir/camera';
+import type { Scene } from './ir/scene';
+import type { CameraView } from './ir/camera';
 import type { CameraCommand, SceneStats, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
-import { createDevice, WebGPUUnavailableError } from '../engine/context';
-import { Engine } from '../engine/engine';
-import { loadImage } from '../importers/load-image';
+import { createDevice, WebGPUUnavailableError } from './engine/context';
+import { Engine } from './engine/engine';
+import { loadImage } from './importers/load-image';
 import { SCENES } from '../app/scenes/manifest';
 
 /**

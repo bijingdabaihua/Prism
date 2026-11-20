@@ -1,4 +1,4 @@
-import type { Scene } from '../../ir/scene';
+import type { Scene } from '../../core/ir/scene';
 import { createVaseOnDirt } from './vase-on-dirt';
 
 /**

@@ -1,10 +1,10 @@
-import type { CameraView } from '../../ir/camera';
-import type { Image } from '../../ir/image';
-import type { Scene } from '../../ir/scene';
-import { Instance } from '../../ir/instance';
-import { MeshBuilder } from '../../geometry/mesh-builder';
-import { placeInstances } from '../../geometry/placement';
-import { defaultPBRMaterial } from '../../ir/material';
+import type { CameraView } from '../../core/ir/camera';
+import type { Image } from '../../core/ir/image';
+import type { Scene } from '../../core/ir/scene';
+import { Instance } from '../../core/ir/instance';
+import { MeshBuilder } from '../../core/geometry/mesh-builder';
+import { placeInstances } from '../../core/geometry/placement';
+import { defaultPBRMaterial } from '../../core/ir/material';
 
 interface SceneOptions {
     /** 省略或空数组 → 放一个 1 m 的灰盒子当占位。 */

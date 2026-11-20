@@ -1,8 +1,8 @@
-import type { Vec3 } from '../../math/types';
-import type { PBRMaterial } from '../../ir/material';
-import { Instance } from '../../ir/instance';
-import { MeshBuilder } from '../../geometry/mesh-builder';
-import { loadBlendMaterial } from '../../importers/blend';
+import type { Vec3 } from '../../core/math/types';
+import type { PBRMaterial } from '../../core/ir/material';
+import { Instance } from '../../core/ir/instance';
+import { MeshBuilder } from '../../core/geometry/mesh-builder';
+import { loadBlendMaterial } from '../../core/importers/blend';
 
 /**
  * 砂土地面 —— 荒地场景的地表。
