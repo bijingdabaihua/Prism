@@ -1,6 +1,6 @@
 import type { Scene } from '../ir/scene';
 import type { RenderSurface } from './context';
-import { RenderContext } from './context';
+import { RenderContext, createDevice } from './context';
 import { Background } from './background';
 import { Model } from './model/model';
 import { Camera } from './camera';
@@ -13,11 +13,16 @@ import { RenderLoop } from './loop';
  */
 export class Engine {
     /**
-     * 用已有的 device 装配引擎 —— Worker 在 init 时就把设备建好了，
-     * 画布后到，不能再申请第二个。
+     * 装配引擎 —— 唯一的工厂入口：自己申请设备、建离屏画布。
+     *
+     * Worker 初始化（init 消息）和换场景都走这条 —— 每次装配都是全新的一套，
+     * 不复用上一套的设备 / 画布（旧 engine release() 后由 GC 回收）。
+     *
+     * Engine 只活在 Worker 里，画布直接 new OffscreenCanvas；主线程不碰这个类。
      */
-    public static fromDevice(device: GPUDevice, canvas: RenderSurface): Engine {
-        return new Engine(device, canvas);
+    public static async create(): Promise<Engine> {
+        const device = await createDevice();
+        return new Engine(device, new OffscreenCanvas(1, 1));
     }
 
     public readonly context: RenderContext;

@@ -8,56 +8,63 @@
  * 这里也是 core 唯一 import app/ 的地方：场景清单（`app/scenes/manifest`）
  * 从这里插进渲染器，其余 core 代码不认识任何具体场景。
  *
- * 运行态全部挂在 `WorkerHost` 一个实例上：消息入口只做转发，设备、引擎、
- * 视口、监听、场景机位都跟着这个实例走。
+ * 运行态全部挂在 `WorkerHost` 一个实例上。消息语义沉到 Engine —— 机位命令和
+ * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`；顶层只留
+ * 「跨引擎」的东西：引擎本身、视口尺寸、换场景编排、串行队列、回执。
  */
 import type { Scene } from './ir/scene';
-import type { CameraView } from './ir/camera';
 import type { CameraCommand, SceneStats, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
-import { createDevice, WebGPUUnavailableError } from './engine/context';
+import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';
 import { SCENES } from '../app/scenes/manifest';
 
 /**
- * Worker 的运行态：一个设备、一个引擎、一条请求队列。
+ * Worker 的运行态。
  *
- * 换场景只换 `engine` 这一个字段；设备是 Worker 的，视口和监听重放到新引擎上。
+ * 换场景只换 `engine` 这一个字段；视口和画面监听是「跨引擎」状态，换引擎后
+ * 重放到新引擎上。消息里凡是「引擎自己会」的（机位、监听、环境图）都委托
+ * 下去，「跨引擎」的（视口、监听开关、换场景、回执）留在这里。
  */
 class WorkerHost {
-    /** 这个 Worker 的设备。 */
-    private device: GPUDevice | null = null;
-    /** 渲染目标 —— Worker 自己持有，主线程看不到。 */
-    private surface: OffscreenCanvas | null = null;
+    /** 渲染引擎：init 时建，model/setScene 时整个换掉。 */
     private engine: Engine | null = null;
     /** 当前场景的规模；没装过场景时为 null。 */
     private stats: SceneStats | null = null;
-    /** 场景自带机位，`camera.reset()` 回到这里。 */
-    private sceneView: CameraView | null = null;
-    /** 最近一次视口尺寸。引擎重建后要重放，否则新上下文是 0×0。 */
+    /** 最近一次视口尺寸。换引擎后要重放，否则新上下文是 0×0。 */
     private viewport: ViewportSize | null = null;
     /** 是否在往主线程推画面。换引擎后要重新挂到新相机上。 */
     private listening = false;
     private listenInterval = 1;
-    /** 当前相机 listen 的取消函数；没有引擎时是 null。 */
-    private detachFrames: (() => void) | null = null;
     /** 异步任务的串行链。 */
     private taskChain: Promise<void> = Promise.resolve();
 
     /** 消息入口：写命令直接做，有返回值的进队列。 */
-    public handle(request: WorkerRequest): void {
+    public async handle(request: WorkerRequest): Promise<void> {
         switch (request.type) {
             case 'init':
-                void this.init(request.id);
+                try {
+                    this.engine ??= await Engine.create();
+                    // resize 可能先于 init 到达：视口已经记在顶层，这里补上重放
+                    this.applyViewport();
+                    this.reply(request.id, undefined);
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    if (err instanceof WebGPUUnavailableError) this.unsupported(request.id, message);
+                    else this.failure(request.id, message);
+                }
                 return;
             case 'camera':
                 this.applyCamera(request.command);
                 return;
             case 'listen/start':
-                this.startListening(request.intervalMs);
+                this.listening = true;
+                this.listenInterval = Math.max(1, request.intervalMs);
+                this.engine?.camera.startListening(this.listenInterval, postFrame);
                 return;
             case 'listen/stop':
-                this.stopListening();
+                this.listening = false;
+                this.engine?.camera.stopListening();
                 return;
             case 'background/setImage':
                 this.enqueue(() => this.setImage(request.id, request.url));
@@ -84,28 +91,6 @@ class WorkerHost {
         this.taskChain = this.taskChain.then(task);
     }
 
-    private async init(id: number): Promise<void> {
-        if (!this.device) {
-            try {
-                this.device = await createDevice();
-                // 离屏画布是 Worker 的内部实现，尺寸由 resize 命令驱动
-                this.surface = new OffscreenCanvas(1, 1);
-                this.engine = this.makeEngine();
-            } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                if (err instanceof WebGPUUnavailableError) this.unsupported(id, message);
-                else this.failure(id, message);
-                return;
-            }
-        }
-        this.reply(id, undefined);
-    }
-
-    /** 装配一个引擎；换场景 / 首次初始化都走这条。 */
-    private makeEngine(): Engine {
-        return Engine.fromDevice(this.device!, this.surface!);
-    }
-
     /**
      * 换环境图：URL → 解码 → 上传。
      *
@@ -114,7 +99,8 @@ class WorkerHost {
      * 场景里的太阳对齐走 `Scene.envRotation`。
      *
      * 引擎已经在跑时也可以换：Background.version() 变化会让 PathTracePass 在
-     * 下一帧重建 bind group 并清零累积。
+     * 下一帧重建 bind group 并清零累积。解码留在顶层（loadImage 是 ir 的
+     * 入口），解码后的 Image 才交给引擎。
      */
     private async setImage(id: number, url: string): Promise<void> {
         try {
@@ -143,23 +129,24 @@ class WorkerHost {
     }
 
     /**
-     * 装场景：清单查表 → 造 Scene IR → 编译 → 换环境图 / 机位。
+     * 装场景：清单查表 → 造 Scene IR → 编译 → 换引擎。
      *
-     * 换场景 = 重建引擎：Model.compile 只能调用一次，PathTracePass 的 bind group
-     * 也绑死在那一份 buffer 上。release() 只卸渲染资源，设备留给下一个引擎。
+     * 换场景 = 重建引擎（`Engine.create()` 全新装配一套设备 + 画布）：
+     * Model.compile 只能调用一次，PathTracePass 的 bind group 也绑死在那一份
+     * buffer 上。release() 只卸渲染资源，旧的设备 / 画布由 GC 回收。
      *
      * 换场景失败时旧场景原样保留 —— 新引擎编译成功之前不动旧的。
      */
     private async setScene(id: number, key: string): Promise<void> {
         try {
-            if (!this.device || !this.engine) throw new Error('Prism 还没初始化');
+            if (!this.engine) throw new Error('Prism 还没初始化');
             const load = SCENES[key];
             if (!load) {
                 throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
             }
 
             const scene = await load();
-            const next = this.makeEngine();
+            const next = await Engine.create();
             try {
                 next.setScene(scene);
             } catch (err) {
@@ -170,10 +157,9 @@ class WorkerHost {
             this.engine = next;
             this.applyViewport();
 
-            this.sceneView = scene.camera;
             this.stats = countScene(scene);
-            // 旧引擎的推送随 release() 停了，新相机要重新挂上
-            if (this.listening) this.attachFrames();
+            // 换引擎后监听要重新挂到新相机上（listening 是跨引擎状态）
+            if (this.listening) next.camera.startListening(this.listenInterval, postFrame);
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));
@@ -181,10 +167,11 @@ class WorkerHost {
     }
 
     /**
-     * 机位命令。
+     * 机位命令：直接落到 Camera 的方法上。
      *
-     * 没有引擎时（还没 init 完）命令没处落，直接忽略 —— 句柄的方法仍然是
-     * 同步的、不抛，等引擎到了 resize 会被重放。
+     * resize 改的是渲染目标的尺寸，不是相机参数 —— 顶层记下来（换引擎要重放），
+     * 由 context 通知相机和各个 pass。其余命令在引擎还没建好时直接丢弃：句柄侧
+     * 是同步不抛的，等 init 完 resize 会补上重放。
      */
     private applyCamera(command: CameraCommand): void {
         if (command.type === 'resize') {
@@ -196,16 +183,11 @@ class WorkerHost {
         if (!camera) return;
 
         switch (command.type) {
-            case 'set': {
-                const { target, distance, theta, phi, fovY, apertureRadius, focusDistance } = command.spec;
-                camera.setView(target, distance, theta, phi);
-                camera.setFovY(fovY);
-                camera.setLens(apertureRadius ?? 0, focusDistance ?? 0);
+            case 'set':
+                camera.applyView(command.spec);
                 return;
-            }
             case 'reset':
-                if (this.sceneView) camera.applyView(this.sceneView);
-                else camera.applyView(DEFAULT_VIEW);
+                camera.reset();
                 return;
             case 'orbit':
                 camera.orbitTheta(command.deltaTheta);
@@ -218,32 +200,6 @@ class WorkerHost {
                 camera.pan(command.deltaX, command.deltaY);
                 return;
         }
-    }
-
-    /**
-     * 画面推送。
-     *
-     * 画面是相机的输出：Worker 这边不自己管定时器和「有没有新帧」，只把
-     * 主线程的 listen 原样转给引擎里的相机 —— 内外同一套语义。
-     */
-    private startListening(intervalMs: number): void {
-        this.listening = true;
-        this.listenInterval = Math.max(1, intervalMs);
-        this.attachFrames();
-    }
-
-    private attachFrames(): void {
-        this.detachFrames?.();
-        this.detachFrames =
-            this.engine?.camera.listen(this.listenInterval, (bitmap) => {
-                scope.postMessage({ type: 'frame', bitmap }, [bitmap]);
-            }) ?? null;
-    }
-
-    private stopListening(): void {
-        this.listening = false;
-        this.detachFrames?.();
-        this.detachFrames = null;
     }
 
     /** 把最近一次尺寸给引擎 —— 新上下文默认 0×0，不重放就永远跳过渲染。 */
@@ -263,14 +219,6 @@ class WorkerHost {
         scope.postMessage({ type: 'unsupported', id, message });
     }
 }
-
-const DEFAULT_VIEW: CameraView = {
-    target: { x: 0, y: 0, z: 0 },
-    distance: 5,
-    theta: 0,
-    phi: Math.PI / 3,
-    fovY: Math.PI / 3,
-};
 
 /**
  * 场景规模。三角形数按实例展开 —— 位移细分的结果缓存在 mesh 上，
@@ -295,9 +243,14 @@ const scope = self as unknown as {
     onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
 };
 
+/** 画面出口：相机的 listen 回调，把帧推回主线程。 */
+function postFrame(bitmap: ImageBitmap): void {
+    scope.postMessage({ type: 'frame', bitmap }, [bitmap]);
+}
+
 /** Worker 唯一的运行态；消息全部转给它。 */
 const host = new WorkerHost();
 
 scope.onmessage = (event: MessageEvent<WorkerRequest>) => {
-    host.handle(event.data);
+    void host.handle(event.data);
 };

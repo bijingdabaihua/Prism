@@ -11,7 +11,8 @@ import { Mat4 } from '../../math/mat4';
  * 轨道相机：观察状态 + 它的 uniform buffer（112 B，布局见 structs.wgsl）+ 出图。
  *
  * 内外一致：外面（CameraHandle）只有 `camera.listen` 能拿到画面，里面也把
- * 渲染藏在这一层 —— `Frame` 是相机的私有实现，外部只调 `listen` / `renderFrame`。
+ * 渲染藏在这一层 —— `Frame` 是相机的私有实现，外部只调 `startListening` /
+ * `renderFrame`。
  *
  * 和 Background 一样是「一份状态 + 它的 GPU 镜像」：相机自己知道参数变化了
  * 没有，脏了就写 buffer，调用方只看返回值决定要不要重置累积。
@@ -34,6 +35,8 @@ export class Camera {
     private apertureRadius = 0;
     /** 对焦距离（米）。0 = 无穷远。 */
     private focusDistance = 0;
+    /** 最近一次整套装进来的机位；reset() 回到这里。 */
+    private sceneView: CameraView | null = null;
     private aspect = 16 / 9;
     private near = 0.01;
     private far = 100;
@@ -86,17 +89,21 @@ export class Camera {
      * 按间隔把当前画面推出去 —— 画面是相机的输出，所以推送也挂在相机上。
      *
      * 和主线程的 `CameraHandle.listen` 同一个语义：渲染比间隔慢时不重复推
-     * 同一帧，返回取消函数。同一时刻只允许一个监听者。
+     * 同一帧。同一时刻只保留一个监听者，重复调用会替换旧的。
      */
-    public listen(intervalMs: number, onFrame: (frame: ImageBitmap) => void): () => void {
-        if (this.listener) throw new Error('Camera.listen：已经有一个监听者');
+    public startListening(intervalMs: number, onFrame: (frame: ImageBitmap) => void): void {
+        this.stopListening();
         const listener: Listener = { intervalMs: Math.max(1, intervalMs), onFrame, lastSent: -1 };
         this.listener = listener;
         this.deliver(listener);
-        return () => {
-            if (this.listener !== listener) return;
-            this.stopListening();
-        };
+    }
+
+    public stopListening(): void {
+        this.listener = null;
+        if (this.listenTimer !== null) {
+            clearTimeout(this.listenTimer);
+            this.listenTimer = null;
+        }
     }
 
     /** 提交一帧（渲染循环驱动）。 */
@@ -150,9 +157,15 @@ export class Camera {
 
     /** 整套机位一次装进来：场景机位、运镜关键帧都走这一条。 */
     public applyView(view: CameraView): void {
+        this.sceneView = view;
         this.setFovY(view.fovY);
         this.setView(view.target, view.distance, view.theta, view.phi);
         this.setLens(view.apertureRadius ?? 0, view.focusDistance ?? 0);
+    }
+
+    /** 回到最近一次整套装进来的机位 —— 观察者运镜之后的复位。 */
+    public reset(): void {
+        this.applyView(this.sceneView ?? DEFAULT_VIEW);
     }
 
     public setFovY(radians: number): void {
@@ -227,14 +240,6 @@ export class Camera {
         }
     }
 
-    private stopListening(): void {
-        this.listener = null;
-        if (this.listenTimer !== null) {
-            clearTimeout(this.listenTimer);
-            this.listenTimer = null;
-        }
-    }
-
     private computeEye(): Vec3 {
         const ct = Math.cos(this.theta),
             st = Math.sin(this.theta);
@@ -247,6 +252,15 @@ export class Camera {
         );
     }
 }
+
+/** 还没装过场景时的占位机位 —— 和类里的初始值保持一致。 */
+const DEFAULT_VIEW: CameraView = {
+    target: { x: 0, y: 0, z: 0 },
+    distance: 5,
+    theta: 0,
+    phi: Math.PI / 3,
+    fovY: Math.PI / 3,
+};
 
 interface Listener {
     readonly intervalMs: number;
