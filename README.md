@@ -78,9 +78,9 @@ core/    渲染器：门面 + Worker 组合根 + 引擎 + IR 生产 + IR
          prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/   门面与组合根
          engine/     context / camera / frame（含 path-tracing）/ loop /
                      background（envMap + 亮度 CDF）/ display / model
-         ir/         Image（含图像 / 贴图解码）/ PBRMaterial（含 .blend 解析）/
-                     Mesh（含 MeshBuilder）/ Instance（含 glTF 解析与摆位）/
-                     Scene / CameraView
+         ir/         Image（含图像 / 贴图解码）/ PBRMaterial /
+                     blend（.blend 材质导入）/ Mesh（含 MeshBuilder）/
+                     Instance（含 glTF 解析与摆位）/ Scene / CameraView
 math/    向量、矩阵、颜色（app 与 core 共用）
 ```
 
