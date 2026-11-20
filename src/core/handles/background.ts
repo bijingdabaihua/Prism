@@ -8,6 +8,11 @@ import type { RpcClient } from '../rpc-client';
 export interface BackgroundHandle {
     /** 设置环境图（URL）。重复调用即换背景；Promise 解决时纹理和 CDF 已经就位。 */
     setImage(url: string): Promise<void>;
+    /**
+     * 旋转当前环境图（绕 +y 的弧度）。需要先 setImage；转完纹理和 CDF 一起
+     * 重建，Promise 解决时已经生效。
+     */
+    setRotation(rotation: number): Promise<void>;
 }
 
 /** 环境光句柄的主线程实现。 */
@@ -16,5 +21,9 @@ export class RpcBackground implements BackgroundHandle {
 
     public setImage(url: string): Promise<void> {
         return this.rpc.request<void>((id) => ({ type: 'background/setImage', id, url }));
+    }
+
+    public setRotation(rotation: number): Promise<void> {
+        return this.rpc.request<void>((id) => ({ type: 'background/setRotation', id, rotation }));
     }
 }

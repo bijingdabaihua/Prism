@@ -67,6 +67,7 @@ export type WorkerRequest =
     | { type: 'listen/start'; intervalMs: number }
     | { type: 'listen/stop' }
     | { type: 'background/setImage'; id: number; url: string }
+    | { type: 'background/setRotation'; id: number; rotation: number }
     /** 装载场景：读清单 → 造 Scene IR → 编译几何 / 材质。 */
     | { type: 'model/setScene'; id: number; key: SceneKey }
     /** 当前场景规模；没装过时为 null。 */

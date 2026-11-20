@@ -34,7 +34,11 @@ export class Background {
     private envMapTexView: GPUTextureView | null = null;
     /** 亮度 CDF（打包布局见文件末尾的 buildEnvDistribution），供环境 NEE 使用。 */
     private envDistBuf: GPUBuffer | null = null;
-    /** 每换一次图 +1。渲染管线据此重建 bind group、清零累积。 */
+    /** 未旋转的原图，供 setRotation 重编译；setImage 之前为 null。 */
+    private source: Image | null = null;
+    /** 当前原图绕 +y 的旋转（弧度）。 */
+    private rotation = 0;
+    /** 每换一次图 / 转一次 +1。渲染管线据此重建 bind group、清零累积。 */
     private versionCounter = 0;
     private readonly device: GPUDevice;
 
@@ -47,19 +51,29 @@ export class Background {
      *
      * `rotation` 是绕 +y 的弧度，场景用它把 HDR 里已有的太阳方位对齐到构图
      * 需要的位置。转的是 CPU 像素，构建 CDF 时用的已经是转过的图。
+     *
+     * 原图会留在内存里给 setRotation 用 —— 环境图只有一张，这份解码后的
+     * 浮点数据换来运行时改朝向，不用重新解码文件。
      */
     public setImage(image: Image, rotation = 0): void {
         if (image.layout !== 'equirect') {
             throw new Error(`Unsupported environment layout: ${image.layout}`);
         }
-        const env = rotation === 0 ? image : rotateEquirect(image, rotation);
-        const { tex, view, dist } = this.build(env);
-        // 先把新的建好、再换掉旧的：构建失败时旧的环境光还能用。
-        this.release();
-        this.envMapTex = tex;
-        this.envMapTexView = view;
-        this.envDistBuf = dist;
-        this.versionCounter++;
+        this.upload(image, rotation);
+    }
+
+    /**
+     * 换环境图的朝向：原图不动，按新角度重新建纹理和亮度 CDF。
+     *
+     * 角度与 setImage 的 `rotation` 同一套定义。改完 version 会变，累积清零；
+     * 还没有环境图时抛错。
+     */
+    public setRotation(rotation: number): void {
+        if (!this.source) {
+            throw new Error('Background: 还没有环境图，先 setImage');
+        }
+        if (rotation === this.rotation) return;
+        this.upload(this.source, rotation);
     }
 
     /**
@@ -93,6 +107,8 @@ export class Background {
 
     public destroy(): void {
         this.release();
+        this.source = null;
+        this.rotation = 0;
     }
 
     /** 放掉当前的纹理和 CDF，回到「还没有环境图」。 */
@@ -102,6 +118,20 @@ export class Background {
         this.envDistBuf?.destroy();
         this.envMapTex = null;
         this.envDistBuf = null;
+    }
+
+    /** 原图 + 角度 → 旋转 → 建 GPU 资源。失败时旧的环境光原样保留。 */
+    private upload(image: Image, rotation: number): void {
+        const env = rotation === 0 ? image : rotateEquirect(image, rotation);
+        // 先把新的建好、再换掉旧的：构建失败时旧的环境光还能用。
+        const { tex, view, dist } = this.build(env);
+        this.release();
+        this.envMapTex = tex;
+        this.envMapTexView = view;
+        this.envDistBuf = dist;
+        this.source = image;
+        this.rotation = rotation;
+        this.versionCounter++;
     }
 
     private build(image: Image): EnvResources {

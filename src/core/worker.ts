@@ -72,6 +72,9 @@ scope.onmessage = (event: MessageEvent<WorkerRequest>) => {
         case 'background/setImage':
             enqueue(() => handleSetImage(request.id, request.url));
             return;
+        case 'background/setRotation':
+            enqueue(() => handleSetRotation(request.id, request.rotation));
+            return;
         case 'model/setScene':
             enqueue(() => handleSetScene(request.id, request.key));
             return;
@@ -117,6 +120,22 @@ async function handleSetImage(id: number, url: string): Promise<void> {
     try {
         if (!engine) throw new Error('Prism 还没初始化');
         engine.background.setImage(await loadImage(url));
+        reply(id, undefined);
+    } catch (err) {
+        failure(id, err instanceof Error ? err.message : String(err));
+    }
+}
+
+/**
+ * 转环境图：不重新解码，拿 Background 留着的原图按新角度重建纹理和 CDF。
+ *
+ * 和 setImage 同一套角度定义（绕 +y 的弧度）。累积会自动清零 ——
+ * Background.version() 变了，下一帧重建 bind group。
+ */
+async function handleSetRotation(id: number, rotation: number): Promise<void> {
+    try {
+        if (!engine) throw new Error('Prism 还没初始化');
+        engine.background.setRotation(rotation);
         reply(id, undefined);
     } catch (err) {
         failure(id, err instanceof Error ? err.message : String(err));
