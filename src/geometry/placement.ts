@@ -1,6 +1,6 @@
-import type { Vec3 } from '../../math/types';
-import type { Instance } from '../../ir/instance';
-import { Mat4 } from '../../math/mat4';
+import type { Vec3 } from '../math/types';
+import type { Instance } from '../ir/instance';
+import { Mat4 } from '../math/mat4';
 
 interface Placement {
     position: Vec3;

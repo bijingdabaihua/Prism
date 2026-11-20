@@ -1,5 +1,5 @@
-import type { Image } from '../../ir/image';
-import type { TextureKind } from '../../ir/material';
+import type { Image } from '../ir/image';
+import type { TextureKind } from '../ir/material';
 import { loadImage } from './load-image';
 
 /**

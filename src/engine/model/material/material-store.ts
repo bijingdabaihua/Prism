@@ -69,7 +69,7 @@ export class MaterialStore {
      * 材质里的贴图 → texture_2d_array 的层号。
      *
      * IR 里的贴图已经是解码好的 Image，这里不需要再查表 —— 解码和去重都在
-     * 导入器那一侧（config/images/load-texture.ts）完成，编译层只负责分配层号。
+     * 导入器那一侧（importers/load-texture.ts）完成，编译层只负责分配层号。
      */
     private resolveTextures(material: PBRMaterial): MaterialTexSlots {
         return {

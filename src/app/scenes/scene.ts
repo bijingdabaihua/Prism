@@ -2,8 +2,8 @@ import type { CameraView } from '../../ir/camera';
 import type { Image } from '../../ir/image';
 import type { Scene } from '../../ir/scene';
 import { Instance } from '../../ir/instance';
-import { MeshBuilder } from '../../config/geometry/mesh-builder';
-import { placeInstances } from '../../config/geometry/placement';
+import { MeshBuilder } from '../../geometry/mesh-builder';
+import { placeInstances } from '../../geometry/placement';
 import { defaultPBRMaterial } from '../../ir/material';
 
 interface SceneOptions {

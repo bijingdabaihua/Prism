@@ -13,7 +13,7 @@ import type { CameraView } from '../ir/camera';
 import type { CameraCommand, SceneStats, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
 import { createDevice, WebGPUUnavailableError } from '../engine/context';
 import { Engine } from '../engine/engine';
-import { loadImage } from '../config/images/load-image';
+import { loadImage } from '../importers/load-image';
 import { SCENES } from '../app/scenes/manifest';
 
 /**
