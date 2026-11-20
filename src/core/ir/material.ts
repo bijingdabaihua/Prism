@@ -6,7 +6,7 @@ import { loadImage } from '../loaders/image';
 /**
  * 渲染器内部统一的材质表达。
  *
- * glTF 的材质在 loaders/gltf.ts 里映射成构造参数；.blend 的解析器就在这个文件
+ * glTF 的材质在 ir/instance.ts 的导入器里映射成构造参数；.blend 的解析器就在这个文件
  * 末尾，由 `buildByBlend` 驱动。映射是有损的，损失多少由各导入器自己负责说明。
  * GPU 打包在 engine/model/material/packing.ts。
  *
