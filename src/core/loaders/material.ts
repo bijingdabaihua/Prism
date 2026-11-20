@@ -1,8 +1,8 @@
 import type { Image } from '../ir/image';
 import type { PBRMaterial } from '../ir/material';
 import { defaultPBRMaterial } from '../ir/material';
-import { loadTexture } from './load-texture';
-import { loadImage } from './load-image';
+import { loadTexture } from './texture';
+import { loadImage } from './image';
 
 /**
  * .blend 材质导入器：文件 → PBRMaterial。

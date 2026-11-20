@@ -2,10 +2,10 @@ import type { CameraView } from '../../core/ir/camera';
 import type { Scene } from '../../core/ir/scene';
 import { createScene } from './scene';
 import { buildTiledGround, loadGroundMaterial, ENV_ROTATION, GROUND_TILE } from './ground';
-import { loadGltf } from '../../core/importers/gltf';
-import { loadImage } from '../../core/importers/load-image';
+import { loadGltf } from '../../core/loaders/gltf';
+import { loadImage } from '../../core/loaders/image';
 import { placeInstances } from '../../core/geometry/placement';
-import { rotateEquirect } from '../../core/importers/rotate-equirect';
+import { rotateEquirect } from '../../core/loaders/equirect';
 
 /**
  * 荒地 —— 一只青花瓷罐搁在夕阳下的砂土上，右下角躺着一根枯枝。

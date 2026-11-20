@@ -1,6 +1,6 @@
 import type { Image } from '../ir/image';
 import type { TextureKind } from '../ir/material';
-import { loadImage } from './load-image';
+import { loadImage } from './image';
 
 /**
  * 材质贴图的解码与去重。

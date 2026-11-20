@@ -3,7 +3,7 @@ import type { Image } from '../ir/image';
 import { Mesh } from '../ir/mesh';
 import { defaultPBRMaterial } from '../ir/material';
 import { Instance } from '../ir/instance';
-import { loadTexture } from './load-texture';
+import { loadTexture } from './texture';
 
 /**
  * glTF 2.0 导入器（.gltf + 外链资源，或 .glb 单文件）。
