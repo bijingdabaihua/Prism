@@ -1,7 +1,6 @@
 import type { Color } from '../../math/types';
 import type { Image } from './image';
-import { loadTexture } from '../loaders/texture';
-import { loadImage } from '../loaders/image';
+import { loadImage, loadTexture } from './image';
 
 /**
  * 渲染器内部统一的材质表达。

@@ -3,7 +3,7 @@ import type { Scene } from '../../core/ir/scene';
 import { createScene } from './scene';
 import { buildTiledGround, loadGroundMaterial, ENV_ROTATION, GROUND_TILE } from './ground';
 import { Instance } from '../../core/ir/instance';
-import { loadImage } from '../../core/loaders/image';
+import { loadImage } from '../../core/ir/image';
 import { placeInstances } from '../../core/geometry/placement';
 
 /**

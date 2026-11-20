@@ -76,18 +76,17 @@ app/     业务层：路由、画廊、渲染页、降级页 + scenes/ 场景内
          —— 主线程只 import core/prism 与 scenes/catalog
 core/    渲染器：门面 + Worker 组合根 + 引擎 + IR 生产 + IR
          prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/   门面与组合根
-         loaders/    image / texture —— 外部资产 → IR
          geometry/   MeshBuilder 与 Instance 摆位（程序化几何 → IR）
          engine/     context / camera / frame（含 path-tracing）/ loop /
                      background（envMap + 亮度 CDF）/ display / model
-         ir/         Image / PBRMaterial（含 .blend 解析）/ Mesh /
-                     Instance（含 glTF 解析）/ Scene / CameraView
+         ir/         Image（含图像 / 贴图解码）/ PBRMaterial（含 .blend 解析）/
+                     Mesh / Instance（含 glTF 解析）/ Scene / CameraView
 math/    向量、矩阵、颜色（app 与 core 共用）
 ```
 
 光追完全跑在 Worker 里：`Prism.create()` 起一个 Worker、要一个独立 `GPUDevice`，
 主线程不碰 GPU，只通过 `camera.listen()` 接收 `ImageBitmap`。`core/worker.ts` 是
-组合根：唯一同时 import 引擎、导入器和场景清单的地方。IR 与编译产物分离：`ir/`
+组合根：唯一同时 import 引擎和场景清单的地方。IR 与编译产物分离：`ir/`
 下的 `instance.ts` / `mesh.ts` 是场景描述，`model/model.ts` 里的 buffer 是编译结果。
 
 约 8800 行 TypeScript + WGSL + CSS。

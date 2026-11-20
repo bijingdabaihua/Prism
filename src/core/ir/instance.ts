@@ -3,7 +3,7 @@ import type { Image } from './image';
 import type { PBRMaterialOptions, TextureKind } from './material';
 import { PBRMaterial } from './material';
 import { Mesh } from './mesh';
-import { loadTexture } from '../loaders/texture';
+import { loadTexture } from './image';
 
 export const INST_FLOATS = 36;
 
