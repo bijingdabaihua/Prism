@@ -1,18 +1,20 @@
 import type { Vec3 } from '../../math/types';
 import type { CameraView } from '../ir/camera';
-import type { RenderContext } from './context';
+import type { RenderSurface } from './context';
 import type { Model } from './model/model';
 import type { Background } from './background';
+import { RenderContext } from './context';
 import { Frame } from './frame/frame';
+import { RenderLoop } from './loop';
 import { vec3, normalize, cross, sub, add, scale } from '../../math/vec3';
 import { Mat4 } from '../../math/mat4';
 
 /**
  * 轨道相机：观察状态 + 它的 uniform buffer（112 B，布局见 structs.wgsl）+ 出图。
  *
- * 内外一致：外面（CameraHandle）只有 `camera.listen` 能拿到画面，里面也把
- * 渲染藏在这一层 —— `Frame` 是相机的私有实现，外部只调 `startListening` /
- * `renderFrame`。
+ * 内外一致：外面（CameraHandle）只有 `camera.listen` 能拿到画面，里面对应的
+ * 渲染目标（RenderContext）和帧循环（RenderLoop）也都归相机 —— Engine 只是
+ * 把模型、环境图、相机拼起来的组装根。
  *
  * 和 Background 一样是「一份状态 + 它的 GPU 镜像」：相机自己知道参数变化了
  * 没有，脏了就写 buffer，调用方只看返回值决定要不要重置累积。
@@ -43,18 +45,24 @@ export class Camera {
     private renderWidth = 800;
     private renderHeight = 600;
     private readonly device: GPUDevice;
+    /** 渲染目标 —— 相机出的图落在这块画布上。 */
+    private readonly context: RenderContext;
     /** 相机的渲染器；画面只从这里出。 */
     private readonly frame: Frame;
+    /** 帧循环：什么时候再渲染一帧、每帧多少预算，也由相机管。 */
+    private readonly loop: RenderLoop;
 
-    constructor(context: RenderContext, model: Model, background: Background) {
-        this.device = context.device;
+    constructor(device: GPUDevice, canvas: RenderSurface, model: Model, background: Background) {
+        this.device = device;
+        this.context = new RenderContext(device, canvas);
         this.buffer = this.device.createBuffer({
             size: 112,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             label: 'camera-uniform',
         });
-        this.frame = new Frame(context, model, this, background);
-        context.onResize((w, h) => this.setResolution(w, h));
+        this.frame = new Frame(this.context, model, this, background);
+        this.context.onResize((w, h) => this.setResolution(w, h));
+        this.loop = new RenderLoop(this);
     }
 
     /** 参数变化（脏）时写入 uniform buffer；返回是否有变化。 */
@@ -185,11 +193,9 @@ export class Camera {
         this.dirty = true;
     }
 
-    public setResolution(w: number, h: number): void {
-        this.renderWidth = w;
-        this.renderHeight = h;
-        this.aspect = w / h;
-        this.dirty = true;
+    /** 视口尺寸（物理像素）—— 主线程量好送进来，画布、相机和各 pass 一起变。 */
+    public setSize(width: number, height: number): void {
+        this.context.setSize(width, height);
     }
 
     public orbitTheta(delta: number): void {
@@ -216,9 +222,17 @@ export class Camera {
     }
 
     public destroy(): void {
+        this.loop.stop();
         this.stopListening();
         this.frame.destroy();
         this.buffer?.destroy();
+    }
+
+    private setResolution(w: number, h: number): void {
+        this.renderWidth = w;
+        this.renderHeight = h;
+        this.aspect = w / h;
+        this.dirty = true;
     }
 
     private deliver(listener: Listener): void {

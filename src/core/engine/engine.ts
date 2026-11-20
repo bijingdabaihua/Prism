@@ -1,16 +1,15 @@
 import type { Instance } from '../ir/instance';
 import type { RenderSurface } from './context';
-import { RenderContext, createDevice } from './context';
+import { createDevice } from './context';
 import { Background } from './background';
 import { Model } from './model/model';
 import { Camera } from './camera';
-import { RenderLoop } from './loop';
 
 /**
- * 组装根：把 GPU 上下文、模型、环境图、相机、帧循环拼起来。
+ * 组装根：把模型、环境图、相机拼起来。
  *
- * 它不拥有「场景」这个概念 —— 机位、环境图、几何分别从三个接口进来，
- * 这里只负责持有生命周期。
+ * 渲染目标、帧循环都归相机 —— 主线程那边也只有 camera 一个句柄管尺寸和出图，
+ * 内外同一套分工。这里只负责持有生命周期。
  */
 export class Engine {
     /**
@@ -24,21 +23,16 @@ export class Engine {
         return new Engine(device, new OffscreenCanvas(1, 1));
     }
 
-    public readonly context: RenderContext;
     public readonly camera: Camera;
     public readonly background: Background;
     /** release() 之后为 true：渲染资源已经卸掉，只剩设备。 */
     private released = false;
     private readonly model: Model;
-    private readonly loop: RenderLoop;
 
     private constructor(device: GPUDevice, canvas: RenderSurface) {
-        this.context = new RenderContext(device, canvas);
         this.background = new Background(device);
         this.model = new Model(device);
-        // 相机持有自己的渲染器：画面从相机出，帧循环也只认它这一个来源
-        this.camera = new Camera(this.context, this.model, this.background);
-        this.loop = new RenderLoop(this.camera);
+        this.camera = new Camera(device, canvas, this.model, this.background);
     }
 
     /**
@@ -59,10 +53,9 @@ export class Engine {
     public release(): void {
         if (this.released) return;
         this.released = true;
-        this.loop.stop();
+        // 相机先停：帧循环和各个 pass 都是它的，之后才能拆几何 / 环境图
+        this.camera.destroy();
         this.model.destroy();
         this.background.destroy();
-        // 相机连同它内部的 Frame 一起销毁
-        this.camera.destroy();
     }
 }

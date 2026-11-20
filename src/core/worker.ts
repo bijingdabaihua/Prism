@@ -134,13 +134,13 @@ class WorkerHost {
     /**
      * 机位命令：直接落到 Camera 的方法上。
      *
-     * resize 改的是渲染目标的尺寸，不是相机参数 —— 交给 context，相机和各个
-     * pass 通过 resize 订阅跟着变。引擎还没建好时命令直接丢弃：句柄侧是同步
-     * 不抛的，而 `Prism.create()` 等到 init 回执才把句柄交出去，resize 不会先到。
+     * resize 改的是渲染目标的尺寸，不是机位参数 —— 相机持有渲染目标和帧循环，
+     * 这里只把尺寸交给它。引擎还没建好时命令直接丢弃：句柄侧是同步不抛的，
+     * 而 `Prism.create()` 等到 init 回执才把句柄交出去，resize 不会先到。
      */
     private applyCamera(command: CameraCommand): void {
         if (command.type === 'resize') {
-            this.engine?.context.setSize(command.size.width, command.size.height);
+            this.engine?.camera.setSize(command.size.width, command.size.height);
             return;
         }
         const camera = this.engine?.camera;
