@@ -10,9 +10,9 @@
  *
  * 运行态全部挂在 `WorkerHost` 一个实例上。消息语义沉到 Engine —— 机位命令和
  * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`；顶层只留
- * 「跨引擎」的东西：引擎本身、视口尺寸、换场景编排、串行队列、回执。
+ * 「跨引擎」的东西：引擎本身、换场景编排、串行队列、回执。
  */
-import type { CameraCommand, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
+import type { CameraCommand, WorkerRequest, WorkerResponse } from './protocol';
 import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';
@@ -21,15 +21,13 @@ import { SCENES } from '../app/scenes/manifest';
 /**
  * Worker 的运行态。
  *
- * 换场景只换 `engine` 这一个字段；视口和画面监听是「跨引擎」状态，换引擎后
- * 重放到新引擎上。消息里凡是「引擎自己会」的（机位、监听、环境图）都委托
- * 下去，「跨引擎」的（视口、监听开关、换场景、回执）留在这里。
+ * 换场景只换 `engine` 这一个字段；画面监听是「跨引擎」状态，换引擎后重挂到
+ * 新相机上。消息里凡是「引擎自己会」的（机位、监听、环境图）都委托下去，
+ * 「跨引擎」的（监听开关、换场景、回执）留在这里。
  */
 class WorkerHost {
     /** 渲染引擎：init 时建，model/setScene 时整个换掉。 */
     private engine: Engine | null = null;
-    /** 最近一次视口尺寸。换引擎后要重放，否则新上下文是 0×0。 */
-    private viewport: ViewportSize | null = null;
     /** 是否在往主线程推画面。换引擎后要重新挂到新相机上。 */
     private listening = false;
     private listenInterval = 1;
@@ -42,8 +40,6 @@ class WorkerHost {
             case 'init':
                 try {
                     this.engine ??= await Engine.create();
-                    // resize 可能先于 init 到达：视口已经记在顶层，这里补上重放
-                    this.applyViewport();
                     this.reply(request.id, undefined);
                 } catch (err) {
                     const message = err instanceof Error ? err.message : String(err);
@@ -147,9 +143,12 @@ class WorkerHost {
                 next.release();
                 throw err;
             }
+            // 新上下文是 0×0：接上旧引擎当前的尺寸，否则新场景永远不渲染
+            const width = this.engine.context.width();
+            const height = this.engine.context.height();
             this.engine.release();
             this.engine = next;
-            this.applyViewport();
+            next.context.setSize(width, height);
 
             // 换引擎后监听要重新挂到新相机上（listening 是跨引擎状态）
             if (this.listening) next.camera.startListening(this.listenInterval, postFrame);
@@ -162,14 +161,13 @@ class WorkerHost {
     /**
      * 机位命令：直接落到 Camera 的方法上。
      *
-     * resize 改的是渲染目标的尺寸，不是相机参数 —— 顶层记下来（换引擎要重放），
-     * 由 context 通知相机和各个 pass。其余命令在引擎还没建好时直接丢弃：句柄侧
-     * 是同步不抛的，等 init 完 resize 会补上重放。
+     * resize 改的是渲染目标的尺寸，不是相机参数 —— 交给 context，相机和各个
+     * pass 通过 resize 订阅跟着变。引擎还没建好时命令直接丢弃：句柄侧是同步
+     * 不抛的，而 `Prism.create()` 等到 init 回执才把句柄交出去，resize 不会先到。
      */
     private applyCamera(command: CameraCommand): void {
         if (command.type === 'resize') {
-            this.viewport = command.size;
-            this.applyViewport();
+            this.engine?.context.setSize(command.size.width, command.size.height);
             return;
         }
         const camera = this.engine?.camera;
@@ -193,11 +191,6 @@ class WorkerHost {
                 camera.pan(command.deltaX, command.deltaY);
                 return;
         }
-    }
-
-    /** 把最近一次尺寸给引擎 —— 新上下文默认 0×0，不重放就永远跳过渲染。 */
-    private applyViewport(): void {
-        if (this.engine && this.viewport) this.engine.context.setSize(this.viewport.width, this.viewport.height);
     }
 
     private reply(id: number, value: unknown): void {
