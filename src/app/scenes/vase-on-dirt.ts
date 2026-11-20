@@ -2,9 +2,8 @@ import type { CameraView } from '../../core/ir/camera';
 import type { Scene } from '../../core/ir/scene';
 import { createScene } from './scene';
 import { buildTiledGround, loadGroundMaterial, ENV_ROTATION, GROUND_TILE } from './ground';
-import { Instance } from '../../core/ir/instance';
+import { Instance, placeInstances } from '../../core/ir/instance';
 import { loadImage } from '../../core/ir/image';
-import { placeInstances } from '../../core/geometry/placement';
 
 /**
  * 荒地 —— 一只青花瓷罐搁在夕阳下的砂土上，右下角躺着一根枯枝。

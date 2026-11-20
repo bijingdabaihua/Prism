@@ -76,11 +76,11 @@ app/     业务层：路由、画廊、渲染页、降级页 + scenes/ 场景内
          —— 主线程只 import core/prism 与 scenes/catalog
 core/    渲染器：门面 + Worker 组合根 + 引擎 + IR 生产 + IR
          prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/   门面与组合根
-         geometry/   MeshBuilder 与 Instance 摆位（程序化几何 → IR）
          engine/     context / camera / frame（含 path-tracing）/ loop /
                      background（envMap + 亮度 CDF）/ display / model
          ir/         Image（含图像 / 贴图解码）/ PBRMaterial（含 .blend 解析）/
-                     Mesh / Instance（含 glTF 解析）/ Scene / CameraView
+                     Mesh（含 MeshBuilder）/ Instance（含 glTF 解析与摆位）/
+                     Scene / CameraView
 math/    向量、矩阵、颜色（app 与 core 共用）
 ```
 
@@ -105,7 +105,7 @@ math/    向量、矩阵、颜色（app 与 core 共用）
 有些场景是几个模型拼起来的，摆放和取景写在 `app/scenes/` 里 ——
 引擎不认识具体的模型，只认 `Scene`。
 
-地面这类大面积几何由代码生成 —— `core/geometry/mesh-builder.ts` 里的 `MeshBuilder`
+地面这类大面积几何由代码生成 —— `core/ir/mesh.ts` 里的 `MeshBuilder`
 铺平面，位移贴图挂在材质上：`Mesh.evolve()` 在编译时把带图的三角形细分成真几何、
 顶点抬起、法线按高度场重算，那张图进 GPU 之前就被消耗掉了。
 

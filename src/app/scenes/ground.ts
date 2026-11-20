@@ -1,7 +1,7 @@
 import type { Vec3 } from '../../math/types';
 import { Instance } from '../../core/ir/instance';
 import { PBRMaterial } from '../../core/ir/material';
-import { MeshBuilder } from '../../core/geometry/mesh-builder';
+import { MeshBuilder } from '../../core/ir/mesh';
 
 /**
  * 砂土地面 —— 荒地场景的地表。
