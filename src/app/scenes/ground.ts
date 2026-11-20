@@ -1,8 +1,7 @@
 import type { Vec3 } from '../../math/types';
-import type { PBRMaterial } from '../../core/ir/material';
 import { Instance } from '../../core/ir/instance';
+import { PBRMaterial } from '../../core/ir/material';
 import { MeshBuilder } from '../../core/geometry/mesh-builder';
-import { loadBlendMaterial } from '../../core/loaders/material';
 
 /**
  * 砂土地面 —— 荒地场景的地表。
@@ -39,7 +38,7 @@ function groundQuad(x0: number, x1: number, z0: number, z1: number): [Vec3, Vec3
 
 /** 砂土材质：荒地场景的地砖用它。 */
 export function loadGroundMaterial(): Promise<PBRMaterial> {
-    return loadBlendMaterial('/textures/forest_ground_06/forest_ground_06.blend', GROUND_METERS);
+    return PBRMaterial.buildByBlend('/textures/forest_ground_06/forest_ground_06.blend', GROUND_METERS);
 }
 
 /**

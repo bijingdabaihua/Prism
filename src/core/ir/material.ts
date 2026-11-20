@@ -5,8 +5,8 @@ import type { Image } from './image';
  * 渲染器内部统一的材质表达。
  *
  * 格式导入在 `loaders/`（.blend / glTF）里：那边把各自的材质模型映射成一份
- * 构造参数，这里只负责收下并补默认值。IR 本身不读文件，所以材质怎么从外部
- * 格式来，不在这份定义里。
+ * 构造参数，这里只负责收下并补默认值。`buildByBlend` 把入口放到类上，解析仍然
+ * 留在 loaders/material.ts —— 用动态 import，避免 ir 静态依赖 loaders 而成环。
  *
  * 映射是有损的，损失多少由各导入器自己负责说明。GPU 打包在 engine/model/material/packing.ts。
  *
@@ -14,6 +14,17 @@ import type { Image } from './image';
  * 就把图解开，编译层拿到的全是内存里的像素。
  */
 export class PBRMaterial {
+    /**
+     * 从 `.blend` 的材质节点图构造。
+     *
+     * `meters` 是一格贴图覆盖的真实尺寸：Blender 里它记在场景 / 物体上，
+     * 材质文件里没有，只能由调用方给。
+     */
+    public static async buildByBlend(url: string, meters?: number): Promise<PBRMaterial> {
+        const { loadBlendMaterial } = await import('../loaders/material');
+        return loadBlendMaterial(url, meters);
+    }
+
     public readonly baseColor: Color;
     public readonly metallic: number;
     public readonly roughness: number;

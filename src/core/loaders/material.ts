@@ -368,7 +368,7 @@ interface TexImage {
 const SRGB_SPACES = new Set(['sRGB', 'Filmic sRGB']);
 
 /**
- * 把一个 `.blend` 读成 PBRMaterial。
+ * 把一个 `.blend` 读成 PBRMaterial —— `PBRMaterial.buildByBlend` 的实现。
  *
  * `meters` 只能由调用方给：一格贴图覆盖多大是资产的物理尺寸，Blender 里
  * 它记在场景/物体上，不在材质里，文件里根本没有这个数（Poly Haven 放在
