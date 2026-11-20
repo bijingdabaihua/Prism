@@ -61,7 +61,7 @@ import { Color } from '../other/types';
 ## 2. 可见性与不可变性
 
 **public → private**：
-- 每个非 `private` 的实例方法，在 `app/` 与 `core/` 目录下搜索方法名
+- 每个非 `private` 的实例方法，在整个 `src/` 目录下搜索方法名
 - 没有任何外部调用 → 加 `private`
 - 实现接口/抽象类要求的方法 → 保持，不收紧
 

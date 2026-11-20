@@ -17,6 +17,6 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["app/**/*.ts", "core/**/*.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
