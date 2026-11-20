@@ -107,8 +107,8 @@ function makeEngine(): Engine {
  * 换环境图：URL → 解码 → 上传。
  *
  * URL 相对 **Worker 脚本**解析，不是相对页面 —— 所以调用方要给根路径
- * （`/env/xxx.exr`）或绝对 URL。原图原样使用，不做 rotateEquirect：
- * 太阳方位由资产本身决定。
+ * （`/env/xxx.exr`）或绝对 URL。这条路径不给旋转角度，原图原样使用；
+ * 场景里的太阳对齐走 `Scene.envRotation`。
  *
  * 引擎已经在跑时也可以换：Background.version() 变化会让 PathTracePass 在
  * 下一帧重建 bind group 并清零累积。

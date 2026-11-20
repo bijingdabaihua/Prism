@@ -11,6 +11,8 @@ interface SceneOptions {
     instances?: Instance[];
     /** 省略 → 中灰的渐变天光。 */
     env?: Image;
+    /** 环境图绕 +y 的旋转（弧度），省略 = 原图方向。 */
+    envRotation?: number;
     /** 省略 → 正对原点、3 m 远的默认机位。 */
     camera?: CameraView;
 }
@@ -36,6 +38,7 @@ export function createScene(options: SceneOptions = {}): Scene {
     return {
         instances: instances.length > 0 ? instances : [createPlaceholderBox()],
         env: options.env ?? createGrayEnvironment(),
+        envRotation: options.envRotation,
         camera: options.camera ?? DEFAULT_CAMERA,
     };
 }

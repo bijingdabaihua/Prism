@@ -19,6 +19,9 @@ import type { Image } from '../ir/image';
  * setImage() 可以重复调用：每调一次换一张环境图（门面的 background.setImage
  * 就是这么用的）。纹理和 CDF 在这一次里直接建好 —— 没有「待上传」状态。
  *
+ * 环境图绕 +y 的旋转也在这里做：Scene 给原图和角度，Background 先转图、再建
+ * 纹理和 CDF，采样与 pdf 仍然自洽。转过的图进 GPU 之前不会留下任何来源信息。
+ *
  * 没有「没有环境图」这个状态：Scene.env 是必填的，构造时也不预留占位图，
  * setImage 之前就是还没有。`hasEnvironment()` 同时是「整个场景已就绪」的
  * 信号 —— Engine.setScene 最后才调它。
@@ -39,12 +42,18 @@ export class Background {
         this.device = device;
     }
 
-    /** 编译环境图 —— 整个生命周期只调用一次。 */
-    public setImage(image: Image): void {
+    /**
+     * 编译环境图 —— 整个生命周期只调用一次。
+     *
+     * `rotation` 是绕 +y 的弧度，场景用它把 HDR 里已有的太阳方位对齐到构图
+     * 需要的位置。转的是 CPU 像素，构建 CDF 时用的已经是转过的图。
+     */
+    public setImage(image: Image, rotation = 0): void {
         if (image.layout !== 'equirect') {
             throw new Error(`Unsupported environment layout: ${image.layout}`);
         }
-        const { tex, view, dist } = this.build(image);
+        const env = rotation === 0 ? image : rotateEquirect(image, rotation);
+        const { tex, view, dist } = this.build(env);
         // 先把新的建好、再换掉旧的：构建失败时旧的环境光还能用。
         this.release();
         this.envMapTex = tex;
@@ -161,6 +170,38 @@ export class Background {
             );
         }
     }
+}
+
+/**
+ * 把环境图绕 +y 轴转 angle 弧度：等距柱状图沿经度整体平移。
+ *
+ * 渲染器的方位角约定是 φ = atan2(z, x)，φ = 0 指向 +x、向 +z 增大。
+ * 正 angle 会让图里的特征（太阳、地平线上的亮区）向 φ 减小的方向移动。
+ *
+ * 这是给场景作者对齐太阳用的：房间是正南正北的，HDR 的太阳未必。
+ * 亮度 CDF 由旋转后的图重新构建，采样和 pdf 仍然自洽，不引入任何偏差。
+ */
+function rotateEquirect(image: Image, angle: number): Image {
+    if (image.layout !== 'equirect') {
+        throw new Error(`rotateEquirect: expected an equirect image, got "${image.layout}"`);
+    }
+    const width = image.width;
+    const height = image.height;
+    const shift = Math.round((angle / (2 * Math.PI)) * width);
+    const k = ((shift % width) + width) % width;
+    if (k === 0) return image;
+
+    const src = image.data;
+    const out = new Float32Array(src.length);
+    const rowFloats = width * 3;
+    const split = k * 3;
+    for (let y = 0; y < height; y++) {
+        const row = y * rowFloats;
+        // 输出列 x 取输入列 x + k
+        out.set(src.subarray(row + split, row + rowFloats), row);
+        out.set(src.subarray(row, row + split), row + rowFloats - split);
+    }
+    return { ...image, data: out };
 }
 
 interface EnvResources {

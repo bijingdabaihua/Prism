@@ -17,6 +17,13 @@ export interface Scene {
      * 缺了它只能是黑屏，那不是任何一个场景想要的结果。
      */
     env: Image;
+    /**
+     * 环境图绕 +y 的旋转（弧度），省略 = 原图方向。
+     *
+     * 只用于对齐 HDR 里已有的太阳方位，不改变光源本身。转图、建 CDF 都在
+     * `Background.setImage` 里做 —— 场景只给角度。
+     */
+    envRotation?: number;
     /** 机位。构图是场景的一部分：同一个场景换一套机位就是另一张图。 */
     camera: CameraView;
 }

@@ -5,7 +5,6 @@ import { buildTiledGround, loadGroundMaterial, ENV_ROTATION, GROUND_TILE } from 
 import { loadGltf } from '../../core/loaders/gltf';
 import { loadImage } from '../../core/loaders/image';
 import { placeInstances } from '../../core/geometry/placement';
-import { rotateEquirect } from '../../core/loaders/equirect';
 
 /**
  * 荒地 —— 一只青花瓷罐搁在夕阳下的砂土上，右下角躺着一根枯枝。
@@ -97,7 +96,8 @@ export async function createVaseOnDirt(envUrl: string): Promise<Scene> {
 
     return createScene({
         instances: [...ground, ...vase, ...branch],
-        env: rotateEquirect(await loadImage(envUrl), SUN_ROTATION),
+        env: await loadImage(envUrl),
+        envRotation: SUN_ROTATION,
         camera: CAMERA,
     });
 }

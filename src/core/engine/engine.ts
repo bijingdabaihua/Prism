@@ -45,7 +45,7 @@ export class Engine {
         // 顺序是契约：先编译几何 / 材质，最后送环境图 —— 后者到位等于「场景就绪」，
         // PathTracePass 靠它决定能不能建 bind group。
         this.model.compile(scene.instances);
-        this.background.setImage(scene.env);
+        this.background.setImage(scene.env, scene.envRotation);
 
         this.camera.applyView(scene.camera);
     }
