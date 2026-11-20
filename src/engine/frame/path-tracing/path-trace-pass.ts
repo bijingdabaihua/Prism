@@ -32,7 +32,7 @@ const FIXED_RESERVE_MS = 0.5;
  * 各多采一次，所以「该像素之前采过几次」= 已完成轮数 (+ 本帧是否跨轮)。
  */
 export class PathTracePass {
-    /** 累积纹理每重建一次就加一；Display 靠它判断 blit bind group 是否过期。 */
+    /** 累积纹理每重建一次就加一；DisplayPass 靠它判断 blit bind group 是否过期。 */
     private version = 0;
     /**
      * 本帧是否重开了累积（相机/场景/尺寸变化）。
@@ -117,7 +117,6 @@ export class PathTracePass {
         return this.currentWriteView ?? this.outView() ?? null;
     }
 
-    /** 累积纹理每重建一次就加一；Display 据此判断 blit bind group 是否过期。 */
     public radianceVersion(): number {
         return this.version;
     }

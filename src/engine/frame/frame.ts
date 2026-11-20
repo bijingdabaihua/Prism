@@ -4,12 +4,12 @@ import type { Background } from '../background';
 import type { RenderContext } from '../context';
 import { GpuTimer } from './gpu-timer';
 import { PathTracePass } from './path-tracing/path-trace-pass';
-import { Display } from '../display/display';
+import { DisplayPass } from '../display/display-pass';
 
 /**
  * 一帧的提交单元。
  *
- * 编排顺序是固定的：先路径追踪（写累加纹理），再 display（blit 到 canvas）。
+ * 编排顺序是固定的：先路径追踪（写累加纹理），再显示（blit 到 canvas）。
  * 采样预算、游标推进都在 PathTracePass 内部；这里只负责把各段串起来，
  * 以及在两端打 GPU 时间戳。
  */
@@ -19,14 +19,14 @@ export class Frame {
     private readonly context: RenderContext;
     private readonly camera: Camera;
     private readonly pathTracePass: PathTracePass;
-    private readonly display: Display;
+    private readonly displayPass: DisplayPass;
     private readonly timer: GpuTimer;
 
     constructor(context: RenderContext, model: Model, camera: Camera, background: Background) {
         this.context = context;
         this.camera = camera;
         this.pathTracePass = new PathTracePass(context, model, camera.buffer, background);
-        this.display = new Display(context);
+        this.displayPass = new DisplayPass(context);
         this.timer = new GpuTimer(context.device);
         this.timer.onMeasure = (samplingMs, _totalMs, dispatch) =>
             this.pathTracePass.reportFrameTime(samplingMs, dispatch);
@@ -88,7 +88,7 @@ export class Frame {
         this.pathTracePass.record(encoder, cameraChanged);
         this.timer.afterSampling(encoder);
 
-        this.display.record(encoder, this.pathTracePass.radianceView(), this.pathTracePass.radianceVersion());
+        this.displayPass.record(encoder, this.pathTracePass.radianceView(), this.pathTracePass.radianceVersion());
         this.timer.end(encoder, this.pathTracePass.lastDispatch());
 
         this.context.device.queue.submit([encoder.finish()]);
@@ -100,7 +100,7 @@ export class Frame {
 
     public destroy(): void {
         this.pathTracePass.destroy();
-        this.display.destroy();
+        this.displayPass.destroy();
         this.timer.destroy();
     }
 }

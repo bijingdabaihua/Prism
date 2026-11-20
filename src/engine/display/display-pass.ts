@@ -8,8 +8,8 @@ import FS from './fullscreen-fragment.wgsl?raw';
  * 输入是 fp32 累加器，不可过滤 —— 用 textureLoad 逐像素取值，不采样；
  * 显示尺寸和渲染尺寸一比一，本来也不需要插值。
  */
-export class Display {
-    private context: RenderContext;
+export class DisplayPass {
+    private readonly context: RenderContext;
     private pipeline: GPURenderPipeline | null = null;
     private blitVersion = -1;
     /** Blit bind groups keyed by radiance view — ping-pong 每帧在两张 view 间切换，每个版本正好 2 个缓存项。 */

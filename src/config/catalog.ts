@@ -3,7 +3,7 @@
  *
  * 单独成一个文件，是为了不 import 任何场景构建器 / 导入器 —— 主线程
  * （core/Prism 与 app）读它时不会把 glTF / blend / 图像解码器打进首屏
- * chunk。场景怎么造（`scene.load`）仍然只在 `config.ts` 里写。
+ * chunk。场景怎么造（loader）仍然只在 `manifest.ts` 里写。
  */
 export interface SceneCard {
     title: string;

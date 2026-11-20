@@ -18,7 +18,7 @@ import { packPBRMaterial, PBR_MAT_FLOATS } from './packing';
 export class MaterialStore {
     /** 材质采样的图集；PathTracePass 直接从这里拿四个数组的 view。 */
     public readonly textures: TextureSet;
-    private buffer!: GPUBuffer;
+    private ssbo!: GPUBuffer;
     private materials: Float32Array[] = [];
     private readonly device: GPUDevice;
     private readonly slots = new Map<PBRMaterial, number>();
@@ -48,20 +48,20 @@ export class MaterialStore {
         for (let i = 0; i < this.materials.length; i++) {
             data.set(this.materials[i], i * PBR_MAT_FLOATS);
         }
-        this.buffer = this.device.createBuffer({
+        this.ssbo = this.device.createBuffer({
             size: data.byteLength,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             label: 'scene-materials',
         });
-        this.device.queue.writeBuffer(this.buffer, 0, data as any);
+        this.device.queue.writeBuffer(this.ssbo, 0, data as any);
     }
 
-    public getBuffer(): GPUBuffer {
-        return this.buffer;
+    public buffer(): GPUBuffer {
+        return this.ssbo;
     }
 
     public destroy(): void {
-        this.buffer?.destroy();
+        this.ssbo?.destroy();
         this.textures.destroy();
     }
 

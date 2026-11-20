@@ -97,13 +97,9 @@ export class Background {
 
     private build(image: Image): EnvResources {
         // 存线性 HDR：Image.data 本身就是线性 RGB，直接上传，不做任何色调映射。
-        // 显示编码只在 display pass 的最后一步发生。
-        return this.buildFromImage(image, 'env-map');
-    }
-
-    private buildFromImage(image: Image, label: string): EnvResources {
+        // 显示编码只在 DisplayPass 的最后一步发生。
         const mips = buildEnvMips(image);
-        const tex = this.createTex(image.width, image.height, mips.length, label);
+        const tex = this.createTex(image.width, image.height, mips.length);
         try {
             const view = tex.createView();
             this.writeTex(tex, mips);
@@ -133,13 +129,13 @@ export class Background {
         return buffer;
     }
 
-    private createTex(width: number, height: number, mipLevels: number, label: string): GPUTexture {
+    private createTex(width: number, height: number, mipLevels: number): GPUTexture {
         return this.device.createTexture({
             size: { width, height },
             format: 'rgba16float',
             mipLevelCount: mipLevels,
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-            label,
+            label: 'env-map',
         });
     }
 

@@ -1,20 +1,21 @@
-import { RpcClient } from './rpc-client';
-import { PrismUnsupportedError } from './errors';
-import { SCENE_CARDS } from '../config/catalog';
 import type { SceneCard } from '../config/catalog';
-import { RpcCamera } from './handles/camera';
-import { RpcBackground } from './handles/background';
-import { RpcModel } from './handles/model';
 import type { CameraHandle } from './handles/camera';
 import type { BackgroundHandle } from './handles/background';
 import type { ModelHandle } from './handles/model';
+import { RpcClient } from './rpc-client';
+import { PrismUnsupportedError } from './errors';
+import { SCENE_CARDS } from '../config/catalog';
+import { RpcCamera } from './handles/camera';
+import { RpcBackground } from './handles/background';
+import { RpcModel } from './handles/model';
 
 // core 的公共面：外部只从这一个文件拿东西。prism.ts 同时也是唯一入口 ——
 // Prism 类、错误类型、三个句柄的契约都在这里露出来，内部文件怎么摆不关外面的事。
 export { PrismUnsupportedError } from './errors';
-export type { CameraSpec, CameraHandle, ViewportSize } from './handles/camera';
+export type { CameraHandle } from './handles/camera';
 export type { BackgroundHandle } from './handles/background';
-export type { SceneKey, ModelHandle, SceneStats } from './handles/model';
+export type { ModelHandle } from './handles/model';
+export type { CameraSpec, SceneKey, SceneStats, ViewportSize } from './protocol';
 export type { SceneCard } from '../config/catalog';
 
 /**

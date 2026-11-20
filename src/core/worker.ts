@@ -5,14 +5,13 @@
  * Worker 自己建的 OffscreenCanvas，主线程从头到尾不碰 GPU。画面通过
  * `camera.listen()` 以 ImageBitmap 推回主线程 —— 每间隔最多一帧。
  */
-import { createDevice, Engine, WebGPUUnavailableError } from '../engine/engine';
-import { loadImage } from '../config/images/load-image';
-import { SCENES } from '../config/manifest';
 import type { Scene } from '../ir/scene';
 import type { CameraView } from '../ir/camera';
-import type { CameraCommand, WorkerRequest, WorkerResponse } from './protocol';
-import type { SceneStats } from './handles/model';
-import type { ViewportSize } from './handles/camera';
+import type { CameraCommand, SceneStats, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
+import { createDevice, WebGPUUnavailableError } from '../engine/context';
+import { Engine } from '../engine/engine';
+import { loadImage } from '../config/images/load-image';
+import { SCENES } from '../config/manifest';
 
 /**
  * Worker 全局作用域的最小声明。
@@ -132,12 +131,12 @@ async function handleSetImage(id: number, url: string): Promise<void> {
 async function handleSetScene(id: number, key: string): Promise<void> {
     try {
         if (!device || !engine) throw new Error('Prism 还没初始化');
-        const entry = SCENES[key];
-        if (!entry) {
+        const load = SCENES[key];
+        if (!load) {
             throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
         }
 
-        const scene = await entry.load();
+        const scene = await load();
         const next = makeEngine();
         try {
             next.setScene(scene);

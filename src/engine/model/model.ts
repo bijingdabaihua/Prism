@@ -1,15 +1,15 @@
 import type { Instance } from '../../ir/instance';
-import { INST_FLOATS } from '../../ir/instance';
 import type { Mesh } from '../../ir/mesh';
+import type { TextureSet } from './material/texture-set';
+import { INST_FLOATS } from '../../ir/instance';
 import { Mat4 } from '../../math/mat4';
 import { buildBvh, meshBlas } from './bvh';
 import { MaterialStore } from './material/material-store';
-import type { TextureSet } from './material/texture-set';
 
 /**
  * Model —— 场景的 GPU 形态：一组 buffer。
  *
- * 和 `model/scene.ts` 的 `Scene` 是同一样东西的两面：`Scene` 是 CPU 侧的描述
+ * 和 `ir/scene.ts` 的 `Scene` 是同一样东西的两面：`Scene` 是 CPU 侧的描述
  * （Instance IR），这里是它编译出来的 GPU 数据。render 层只认识这一面，
  * 不碰任何 CPU 侧的几何对象。
  *
@@ -270,18 +270,7 @@ function uploadSceneNodes(device: GPUDevice, data: Float32Array): GPUBuffer {
     return createBuffer(device, data, 'scene-nodes');
 }
 
-/**
- * Model —— 场景的 GPU 形态：一组 buffer。
- *
- * 和 `model/scene.ts` 的 `Scene` 是同一样东西的两面：`Scene` 是 CPU 侧的描述
- * （Instance IR），这里是它编译出来的 GPU 数据。render 层只认识这一面，
- * 不碰任何 CPU 侧的几何对象。
- *
- * 这里的 model 指「场景在 GPU 这边的模型」，不是 `assets/model/` 下那个
- * glTF 资产 —— 后者是 Mesh / Instance 的事。
- *
- * 材质表由其内部按本次打包的结果维护，材质采样的图集归材质表持有（见 MaterialStore）。
- */
+/** 场景的 GPU 形态 —— 编译一次，之后只读；释放见 destroy()。 */
 export class Model {
     /**
      * TLAS + BLAS 合并节点 buffer：每节点 8 floats。
@@ -331,7 +320,7 @@ export class Model {
 
     /** 材质 SSBO，供 bind group 直接绑定。 */
     public materialBuffer(): GPUBuffer {
-        return this.materialStore.getBuffer();
+        return this.materialStore.buffer();
     }
 
     /** 材质图集，供 bind group 直接绑定。 */

@@ -1,4 +1,5 @@
 import type { RpcClient } from '../rpc-client';
+import type { CameraSpec, ViewportSize } from '../protocol';
 
 /**
  * 相机句柄：契约 + 主线程侧实现。
@@ -6,34 +7,6 @@ import type { RpcClient } from '../rpc-client';
  * Worker 里的 `Camera` 才是真的机位；这边只把方法翻成消息。命令全部是
  * 同步的「发完不管」；只有 `listen` 有心跳 —— 帧是 Worker 主动推回来的。
  */
-
-/**
- * 观察模型：绕 target 的轨道相机。
- *
- * 这是本渲染器的机位语义，不是 ir/CameraView 的拷贝 —— 结构一样只是巧合，
- * 业务契约不跟着 IR 变。
- */
-export interface CameraSpec {
-    target: { x: number; y: number; z: number };
-    /** 相机到 target 的距离（米，轨道半径）。 */
-    distance: number;
-    /** 水平角，π/2 表示从 +z 方向看过来。 */
-    theta: number;
-    /** 俯仰角，π/2 是水平视线，越小相机越高。 */
-    phi: number;
-    /** 垂直视野角，弧度。 */
-    fovY: number;
-    /** 入射光瞳半径（米）。省略或 0 = 针孔。 */
-    apertureRadius?: number;
-    /** 对焦距离（米）。需要和 apertureRadius 一起给才生效。 */
-    focusDistance?: number;
-}
-
-/** 渲染视口尺寸（物理像素 = CSS 尺寸 × devicePixelRatio）。 */
-export interface ViewportSize {
-    width: number;
-    height: number;
-}
 
 /**
  * 相机句柄 —— 所有方法都是同步的，调用即返回，不等帧。

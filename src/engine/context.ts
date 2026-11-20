@@ -7,7 +7,8 @@
 export type RenderSurface = HTMLCanvasElement | OffscreenCanvas;
 
 /**
- * RenderContext 把 GPUDevice 和 canvas 绑定为一个整体，作为渲染目标尺寸的单一持有者。
+ * GPU 基础设施：申请设备（createDevice）并把 GPUDevice 和 canvas 绑定为一个整体。
+ * RenderContext 是渲染目标尺寸的单一持有者。
  *
  * Canvas 的宽高是共享基础设施，不属于任何单个 pass；尺寸变化通过 onResize 订阅通知
  * 各组件（Camera / PathTracePass 等），各自响应。驱动方式为每帧在渲染循环里调用
@@ -90,4 +91,64 @@ export class RenderContext {
     public onResize(fn: (width: number, height: number) => void): void {
         this.resizeListeners.push(fn);
     }
+}
+
+/** 拿不到 WebGPU 设备 —— 调用方据此走降级页，而不是当成普通错误。 */
+export class WebGPUUnavailableError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'WebGPUUnavailableError';
+    }
+}
+
+/**
+ * 申请 adapter + device。主线程和 Worker 走同一条 —— 设备的申请条件只写一遍。
+ *
+ * 浏览器没有 WebGPU、或者拿不到 adapter（驱动进黑名单、虚拟机、关了硬件加速），
+ * 都抛 WebGPUUnavailableError；requestDevice 自身的失败原样上抛。
+ */
+export async function createDevice(): Promise<GPUDevice> {
+    if (!navigator.gpu) {
+        throw new WebGPUUnavailableError('WebGPU not supported. Try Chrome 113+.');
+    }
+
+    // 双显卡笔记本上 dGPU 休眠时 'high-performance' 档可能拿不到 adapter，
+    // 超时或 null 都退回默认档再试一次。
+    const adapter =
+        (await raceTimeout(
+            navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }),
+            ADAPTER_TIMEOUT_MS,
+        )) ?? (await raceTimeout(navigator.gpu.requestAdapter(), ADAPTER_TIMEOUT_MS));
+    if (!adapter) {
+        throw new WebGPUUnavailableError(
+            'No WebGPU adapter. 打开 chrome://gpu 确认 WebGPU 为 Enabled，' +
+                '并检查系统设置里「使用图形加速」是否开启。',
+        );
+    }
+
+    // 时间戳用于测量每帧 GPU 采样耗时（采样预算控制器的输入）。
+    // 拿不到就退回 onSubmittedWorkDone，不影响渲染。
+    const requiredFeatures: GPUFeatureName[] = [];
+    if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query');
+
+    return adapter.requestDevice({ requiredFeatures });
+}
+
+/** requestAdapter 在某些机器上会一直不 resolve，别让调用方无限等待。 */
+const ADAPTER_TIMEOUT_MS = 8000;
+
+function raceTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), ms);
+        p.then(
+            (v) => {
+                clearTimeout(timer);
+                resolve(v);
+            },
+            () => {
+                clearTimeout(timer);
+                resolve(null);
+            },
+        );
+    });
 }
