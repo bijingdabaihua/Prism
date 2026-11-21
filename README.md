@@ -75,7 +75,7 @@ Firefox 需要 `dom.webgpu.enabled`。不支持时会落到静态页 —— 渲�
 app/     业务层：路由、画廊、渲染页、降级页 + scenes/ 场景内容
          —— 主线程只 import core/prism 与 scenes/catalog
 core/    渲染器：门面 + Worker 组合根 + 引擎 + IR 生产 + IR
-         prism.ts / worker.ts / protocol.ts / rpc-client.ts / handles/   门面与组合根
+         prism.ts（门面 + 主线程 RPC / 句柄 / 错误）/ worker.ts / protocol.ts
          engine/     context / camera / frame（含 path-tracing）/ loop /
                      background（envMap + 亮度 CDF）/ display / model
          ir/         Image（含图像 / 贴图解码）/ PBRMaterial /
