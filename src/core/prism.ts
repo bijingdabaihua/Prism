@@ -7,81 +7,11 @@
  */
 
 /**
- * 门面：起 Worker、装配三个句柄、管生命周期。
+ * 公开契约
  *
- * 实际渲染跑在 Worker 里 —— 一个实例一个 Worker、一个独立 GPUDevice，
- * 主线程从头到尾不碰 GPU。实例只对外暴露 camera / background / model
- * 三个只读句柄；各自的契约和主线程实现都在本文件。
- *
- * 业务层只认识这一个类。画面是相机的输出：`camera.listen(interval, cb)`
- * 每 interval 毫秒把一帧 ImageBitmap 推回主线程，worker 内部自己持有画布。
+ * 以下类型、接口和门面签名是对外 API。修改前先确认调用方影响；
+ * 具体实现从本文件的「实现」一节开始。
  */
-export class Prism {
-    /**
-     * 异步工厂：一次调用 = 一个 Worker = 一个独立 GPUDevice。
-     *
-     * 主线程先看一眼 navigator.gpu —— 没有就连 Worker 都不起，直接拒绝。
-     * 这一眼只说明「浏览器有这个 API」，不保证真能跑：requestAdapter() 在
-     * Worker 里仍可能返回 null（驱动进黑名单、虚拟机、关了硬件加速），
-     * 那种情况同样以 PrismUnsupportedError 拒绝 —— 消息由 Worker 报回来。
-     *
-     * 不接画布：Worker 内部自建 OffscreenCanvas，画面通过
-     * `camera.listen()` 以 ImageBitmap 推回来 —— 主线程不碰 GPU。
-     */
-    public static async create(): Promise<Prism> {
-        if (!navigator.gpu) {
-            throw new PrismUnsupportedError('WebGPU is not available. Try Chrome 113+.');
-        }
-
-        const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-        const rpc = new RpcClient(worker);
-        try {
-            await withTimeout(
-                rpc.init(),
-                READY_TIMEOUT_MS,
-                `Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内就绪`,
-            );
-        } catch (err) {
-            // 半途失败的 Worker 不能留着：它可能已经占着设备了
-            rpc.dispose();
-            worker.terminate();
-            throw err;
-        }
-        return new Prism(worker, rpc);
-    }
-
-    /** 观察者：机位控制。 */
-    public readonly camera: CameraHandle;
-    /** 环境光照。 */
-    public readonly background: BackgroundHandle;
-    /** 场景几何：已编译的模型。 */
-    public readonly model: ModelHandle;
-    private disposed = false;
-    private readonly rpc: RpcClient;
-
-    private constructor(
-        private readonly worker: Worker,
-        rpc: RpcClient,
-    ) {
-        this.rpc = rpc;
-        this.camera = new RpcCamera(rpc);
-        this.background = new RpcBackground(rpc);
-        this.model = new RpcModel(rpc);
-    }
-
-    /**
-     * 释放这个实例的 Worker 和 GPU 设备。
-     *
-     * 实例独占一个 Worker 和一个 GPUDevice，dispose 之后所有句柄失效；
-     * 重复调用无副作用。不 dispose 就等于一直占着一个 Worker 和一份显存。
-     */
-    public dispose(): void {
-        if (this.disposed) return;
-        this.disposed = true;
-        this.rpc.dispose();
-        this.worker.terminate();
-    }
-}
 
 /** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
 export type SceneKey = string;
@@ -113,45 +43,6 @@ export interface CameraSpec {
     /** 对焦距离（米）。需要和 apertureRadius 一起给才生效。 */
     focusDistance?: number;
 }
-
-/** 机位命令：全部是「照做」的写操作，没有返回值。 */
-export type CameraCommand =
-    | { type: 'set'; spec: CameraSpec }
-    | { type: 'reset' }
-    | { type: 'resize'; size: ViewportSize }
-    | { type: 'orbit'; deltaTheta: number; deltaPhi: number }
-    | { type: 'zoom'; factor: number }
-    | { type: 'pan'; deltaX: number; deltaY: number };
-
-/**
- * 主线程 → Worker。
- *
- * 两类消息：写操作（机位命令）没有 id；有返回值的调用带自增 id，
- * Worker 用 result / failure 回执。「跑不了 WebGPU」单独一种回执，
- * 主线程据此转成 PrismUnsupportedError。
- */
-export type WorkerRequest =
-    | { type: 'init'; id: number }
-    | { type: 'camera'; command: CameraCommand }
-    /** 开始按间隔把画面推回主线程。 */
-    | { type: 'listen/start'; intervalMs: number }
-    | { type: 'listen/stop' }
-    /** 换环境图；rotation 是绕 +y 的弧度，省略 = 原图方向。 */
-    | { type: 'background/setImage'; id: number; url: string; rotation?: number }
-    | { type: 'background/setRotation'; id: number; rotation: number }
-    /** 装载场景几何：读清单 → 造 Instance → 编译材质 / BVH。 */
-    | { type: 'model/load'; id: number; key: SceneKey };
-
-/** Worker → 主线程。 */
-export type WorkerResponse =
-    /** 成功了：value 是这次调用的返回值（void 调用不带）。 */
-    | { type: 'result'; id: number; value?: unknown }
-    /** 这次调用失败了。 */
-    | { type: 'failure'; id: number; message: string }
-    /** 这台机器跑不了 WebGPU。 */
-    | { type: 'unsupported'; id: number; message: string }
-    /** 一帧画面（listen 的推送，没有 id）。 */
-    | { type: 'frame'; bitmap: ImageBitmap };
 
 /**
  * 相机句柄 —— 所有方法都是同步的，调用即返回，不等帧。
@@ -232,6 +123,27 @@ export interface ModelHandle {
     load(key: SceneKey): Promise<void>;
 }
 
+/**
+ * 门面契约（实例侧）。
+ *
+ * 创建入口是 `Prism.create()`；实例只暴露三个只读句柄和 `dispose()`。
+ */
+export interface Prism {
+    /** 观察者：机位控制。 */
+    readonly camera: CameraHandle;
+    /** 环境光照。 */
+    readonly background: BackgroundHandle;
+    /** 场景几何：已编译的模型。 */
+    readonly model: ModelHandle;
+    /** 释放 Worker 和 GPU 设备；重复调用无副作用。 */
+    dispose(): void;
+}
+
+/** 门面工厂：`Prism.create()` 的签名。 */
+export interface PrismFactory {
+    create(): Promise<Prism>;
+}
+
 /** 这台机器跑不了 WebGPU —— 调用方据此走降级页，而不是错误态。 */
 export class PrismUnsupportedError extends Error {
     constructor(message = 'WebGPU is not available in this browser') {
@@ -239,6 +151,134 @@ export class PrismUnsupportedError extends Error {
         this.name = 'PrismUnsupportedError';
     }
 }
+
+/**
+ * 实现
+ *
+ * 以下内容不属于公开契约：内部消息协议、门面的具体实现和 RPC 句柄。
+ */
+
+/** 机位命令：全部是「照做」的写操作，没有返回值。 */
+export type CameraCommand =
+    | { type: 'set'; spec: CameraSpec }
+    | { type: 'reset' }
+    | { type: 'resize'; size: ViewportSize }
+    | { type: 'orbit'; deltaTheta: number; deltaPhi: number }
+    | { type: 'zoom'; factor: number }
+    | { type: 'pan'; deltaX: number; deltaY: number };
+
+/**
+ * 主线程 → Worker。
+ *
+ * 两类消息：写操作（机位命令）没有 id；有返回值的调用带自增 id，
+ * Worker 用 result / failure 回执。「跑不了 WebGPU」单独一种回执，
+ * 主线程据此转成 PrismUnsupportedError。
+ */
+export type WorkerRequest =
+    | { type: 'init'; id: number }
+    | { type: 'camera'; command: CameraCommand }
+    /** 开始按间隔把画面推回主线程。 */
+    | { type: 'listen/start'; intervalMs: number }
+    | { type: 'listen/stop' }
+    /** 换环境图；rotation 是绕 +y 的弧度，省略 = 原图方向。 */
+    | { type: 'background/setImage'; id: number; url: string; rotation?: number }
+    | { type: 'background/setRotation'; id: number; rotation: number }
+    /** 装载场景几何：读清单 → 造 Instance → 编译材质 / BVH。 */
+    | { type: 'model/load'; id: number; key: SceneKey };
+
+/** Worker → 主线程。 */
+export type WorkerResponse =
+    /** 成功了：value 是这次调用的返回值（void 调用不带）。 */
+    | { type: 'result'; id: number; value?: unknown }
+    /** 这次调用失败了。 */
+    | { type: 'failure'; id: number; message: string }
+    /** 这台机器跑不了 WebGPU。 */
+    | { type: 'unsupported'; id: number; message: string }
+    /** 一帧画面（listen 的推送，没有 id）。 */
+    | { type: 'frame'; bitmap: ImageBitmap };
+
+/**
+ * 门面：起 Worker、装配三个句柄、管生命周期。
+ *
+ * 实际渲染跑在 Worker 里 —— 一个实例一个 Worker、一个独立 GPUDevice，
+ * 主线程从头到尾不碰 GPU。实例只对外暴露 camera / background / model
+ * 三个只读句柄；各自的契约和主线程实现都在本文件。
+ *
+ * 业务层只认识这个门面。画面是相机的输出：`camera.listen(interval, cb)`
+ * 每 interval 毫秒把一帧 ImageBitmap 推回主线程，worker 内部自己持有画布。
+ */
+class PrismImpl implements Prism {
+    /**
+     * 异步工厂：一次调用 = 一个 Worker = 一个独立 GPUDevice。
+     *
+     * 主线程先看一眼 navigator.gpu —— 没有就连 Worker 都不起，直接拒绝。
+     * 这一眼只说明「浏览器有这个 API」，不保证真能跑：requestAdapter() 在
+     * Worker 里仍可能返回 null（驱动进黑名单、虚拟机、关了硬件加速），
+     * 那种情况同样以 PrismUnsupportedError 拒绝 —— 消息由 Worker 报回来。
+     *
+     * 不接画布：Worker 内部自建 OffscreenCanvas，画面通过
+     * `camera.listen()` 以 ImageBitmap 推回来 —— 主线程不碰 GPU。
+     */
+    public static async create(): Promise<Prism> {
+        if (!navigator.gpu) {
+            throw new PrismUnsupportedError('WebGPU is not available. Try Chrome 113+.');
+        }
+
+        const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+        const rpc = new RpcClient(worker);
+        try {
+            await withTimeout(
+                rpc.init(),
+                READY_TIMEOUT_MS,
+                `Prism.create: Worker 未在 ${READY_TIMEOUT_MS} ms 内就绪`,
+            );
+        } catch (err) {
+            // 半途失败的 Worker 不能留着：它可能已经占着设备了
+            rpc.dispose();
+            worker.terminate();
+            throw err;
+        }
+        return new PrismImpl(worker, rpc);
+    }
+
+    /** 观察者：机位控制。 */
+    public readonly camera: CameraHandle;
+    /** 环境光照。 */
+    public readonly background: BackgroundHandle;
+    /** 场景几何：已编译的模型。 */
+    public readonly model: ModelHandle;
+    private disposed = false;
+    private readonly rpc: RpcClient;
+
+    private constructor(
+        private readonly worker: Worker,
+        rpc: RpcClient,
+    ) {
+        this.rpc = rpc;
+        this.camera = new RpcCamera(rpc);
+        this.background = new RpcBackground(rpc);
+        this.model = new RpcModel(rpc);
+    }
+
+    /**
+     * 释放这个实例的 Worker 和 GPU 设备。
+     *
+     * 实例独占一个 Worker 和一个 GPUDevice，dispose 之后所有句柄失效；
+     * 重复调用无副作用。不 dispose 就等于一直占着一个 Worker 和一份显存。
+     */
+    public dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        this.rpc.dispose();
+        this.worker.terminate();
+    }
+}
+
+/**
+ * 导出的门面工厂：值就是 PrismImpl，外部只能通过 `Prism.create()` 创建。
+ * 保留构造函数值是为了 `instanceof` 仍然可用；实现类本身不单独导出。
+ */
+export const Prism: PrismFactory & typeof PrismImpl = PrismImpl;
 
 /**
  * 主线程这一侧的 RPC：发消息、接回执。
