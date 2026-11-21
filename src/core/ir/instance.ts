@@ -29,19 +29,30 @@ export class Instance {
      * 一个文件可能包含多个节点，每个节点一次摆放 —— 所以返回的是数组，
      * 调用方要把它们当成一个整体来摆放，而不是逐个摆放。
      *
+     * URL 会同时给出外链资源的 base；Blob 没有 base，适合自包含 `.glb`
+     * 或资源全部内嵌的文件。
+     *
      * 材质已经在 Mesh 里了（贴图解码成 Image）：导入器交出的就是 IR 里
      * 能直接交给引擎的东西，没有第二份「结果」需要调用方再拼。
      *
      * 支持的范围见文件末尾的导入器说明。
      */
-    public static async buildByGltf(url: string): Promise<Instance[]> {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`Failed to load glTF: ${url} (${resp.status})`);
-        const buf = await resp.arrayBuffer();
+    public static async buildByGltf(source: string | Blob): Promise<Instance[]> {
+        let buf: ArrayBuffer;
+        let baseUrl = '';
+        let label = 'glTF Blob';
+        if (typeof source === 'string') {
+            const resp = await fetch(source);
+            if (!resp.ok) throw new Error(`Failed to load glTF: ${source} (${resp.status})`);
+            buf = await resp.arrayBuffer();
+            baseUrl = source.substring(0, source.lastIndexOf('/') + 1);
+            label = source;
+        } else {
+            buf = await source.arrayBuffer();
+        }
 
-        const { doc, bin } = parseContainer(buf, url);
-        const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-        const buffers = await loadBuffers(doc, bin, baseUrl, url);
+        const { doc, bin } = parseContainer(buf, label);
+        const buffers = await loadBuffers(doc, bin, baseUrl, label);
 
         const ctx: LoadContext = {
             doc,

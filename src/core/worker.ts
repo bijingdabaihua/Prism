@@ -13,10 +13,11 @@
  * `engine.setInstances`；顶层只留引擎本身、串行队列和回执。
  */
 // 纯类型导入：消息协议和门面同文件，编译后这条边会完全擦除。
-import type { CameraCommand, WorkerRequest, WorkerResponse } from './prism';
+import type { CameraCommand, GltfSource, InstanceSpec, WorkerRequest, WorkerResponse } from './prism';
 import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';
+import { Instance, placeInstances } from './ir/instance';
 import { SCENES } from '../app/scenes/manifest';
 
 /**
@@ -61,6 +62,12 @@ class WorkerHost {
                 return;
             case 'model/load':
                 this.enqueue(() => this.loadModel(request.id, request.key));
+                return;
+            case 'model/loadGltf':
+                this.enqueue(() => this.loadGltf(request.id, request.source));
+                return;
+            case 'model/loadInstance':
+                this.enqueue(() => this.loadInstance(request.id, request.instance));
                 return;
         }
     }
@@ -125,6 +132,44 @@ class WorkerHost {
                 throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
             }
             this.engine.setInstances(await build());
+            this.reply(id, undefined);
+        } catch (err) {
+            this.failure(id, err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    /**
+     * 直接编译一个 glTF 文件里的全部 Instance。
+     *
+     * 与场景 key 入口一样，最终都落到 `engine.setInstances`；Model 只允许
+     * 编译一次，所以三个入口互斥。
+     */
+    private async loadGltf(id: number, source: GltfSource): Promise<void> {
+        try {
+            if (!this.engine) throw new Error('Prism 还没初始化');
+            this.engine.setInstances(await Instance.buildByGltf(source));
+            this.reply(id, undefined);
+        } catch (err) {
+            this.failure(id, err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    /**
+     * 从 glTF 里取一个 Instance，按指定摆放编译。
+     *
+     * 不摆放时保留文件里的节点变换；`index` 是 glTF 展开后的 Instance 顺序。
+     */
+    private async loadInstance(id: number, spec: InstanceSpec): Promise<void> {
+        try {
+            if (!this.engine) throw new Error('Prism 还没初始化');
+            const instances = await Instance.buildByGltf(spec.source);
+            const index = spec.index ?? 0;
+            const instance = instances[index];
+            if (!instance) {
+                throw new Error(`glTF 里没有第 ${index} 个 Instance（共 ${instances.length} 个）`);
+            }
+            if (spec.placement) placeInstances([instance], spec.placement);
+            this.engine.setInstances([instance]);
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));

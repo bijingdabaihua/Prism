@@ -15,7 +15,13 @@ import { createModel } from './model';
 
 export type { BackgroundHandle } from './background';
 export type { CameraHandle, CameraSpec, ViewportSize } from './camera';
-export type { ModelHandle, SceneKey } from './model';
+export type {
+    GltfSource,
+    InstancePlacement,
+    InstanceSpec,
+    ModelHandle,
+    SceneKey,
+} from './model';
 
 /**
  * 公开契约
