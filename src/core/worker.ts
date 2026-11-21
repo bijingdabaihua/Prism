@@ -54,7 +54,7 @@ class WorkerHost {
                 this.engine?.camera.stopListening();
                 return;
             case 'background/setImage':
-                this.enqueue(() => this.setImage(request.id, request.url));
+                this.enqueue(() => this.setImage(request.id, request.blob));
                 return;
             case 'background/setRotation':
                 this.enqueue(() => this.setRotation(request.id, request.rotation));
@@ -76,20 +76,19 @@ class WorkerHost {
     }
 
     /**
-     * 换环境图：URL → 解码 → 上传。
+     * 换环境图：Blob → 解码 → 上传。
      *
-     * URL 相对 **Worker 脚本**解析，不是相对页面 —— 所以调用方要给根路径
-     * （`/env/xxx.exr`）或绝对 URL。只换图，不动朝向；朝向由 setRotation
-     * 单独负责。
+     * 主线程只负责提供字节；格式识别和解码都在 Worker 里。只换图，不动
+     * 朝向；朝向由 setRotation 单独负责。
      *
      * 引擎已经在跑时也可以换：Background.version() 变化会让 PathTracePass 在
      * 下一帧重建 bind group 并清零累积。解码留在顶层（loadImage 是 ir 的
      * 入口），解码后的 Image 才交给引擎。
      */
-    private async setImage(id: number, url: string): Promise<void> {
+    private async setImage(id: number, blob: Blob): Promise<void> {
         try {
             if (!this.engine) throw new Error('Prism 还没初始化');
-            this.engine.background.setImage(await loadImage(url));
+            this.engine.background.setImage(await loadImage(blob));
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));

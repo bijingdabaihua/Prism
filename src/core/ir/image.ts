@@ -50,10 +50,22 @@ interface ImageOptions {
     meters?: number;
 }
 
-export async function loadImage(url: string, options?: ImageOptions): Promise<Image> {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Failed to load ${url} (${resp.status})`);
-    const image = await decodeImage(await resp.arrayBuffer(), options);
+/**
+ * 任意来源的图像入口：URL 由内部 fetch，Blob 直接读字节。
+ *
+ * 格式识别和解码始终在这一层完成 —— 调用方只需要给来源，不需要知道
+ * 它是 EXR、HDR 还是位图。
+ */
+export async function loadImage(source: string | Blob, options?: ImageOptions): Promise<Image> {
+    let buf: ArrayBuffer;
+    if (typeof source === 'string') {
+        const resp = await fetch(source);
+        if (!resp.ok) throw new Error(`Failed to load ${source} (${resp.status})`);
+        buf = await resp.arrayBuffer();
+    } else {
+        buf = await source.arrayBuffer();
+    }
+    const image = await decodeImage(buf, options);
     return {
         ...image,
         layout: options?.layout ?? image.layout,

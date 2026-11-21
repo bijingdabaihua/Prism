@@ -15,7 +15,7 @@ import type { CameraSpec } from '../../core/prism';
 export interface SceneSetup {
     /** 构图。换一套机位就是另一张图，所以它是场景的一部分。 */
     camera: CameraSpec;
-    /** 环境图 URL；Worker 负责解码。 */
+    /** 环境图 URL；渲染页取成 Blob 交给 Worker 解码。 */
     env: string;
     /** 环境图绕 +y 的旋转（弧度），省略 = 原图方向。 */
     envRotation?: number;
