@@ -14,15 +14,6 @@
 /** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
 export type SceneKey = string;
 
-/**
- * glTF 来源。
- *
- * URL 按页面地址解析，可以解析 `.gltf` 的外链 buffer / 贴图；Blob 适合
- * 自包含的 `.glb`、资源都用 data URI 内嵌的文件，或者下载来的 `.zip` ——
- * Worker 会解开 ZIP 并把里面的相对路径接上，不需要主线程先解压。
- */
-export type GltfSource = string | Blob;
-
 /** 一组实例的摆放，语义与场景构建器里的 `placeInstances` 一致。 */
 export interface InstancePlacement {
     position: { x: number; y: number; z: number };
@@ -39,7 +30,11 @@ export interface InstancePlacement {
  * glTF 的一个节点展开成一个 Instance；`index` 指的是展开后的顺序。
  */
 export interface InstanceSpec {
-    source: GltfSource;
+    /**
+     * 一个 glTF 资产包的字节：自包含 `.glb`、资源内嵌的 `.gltf`，或带
+     * `.bin` / 贴图的 `.zip`。ZIP 在 Worker 里解包，主线程只负责取字节。
+     */
+    source: Blob;
     /** 取第几个 Instance；省略 = 0。 */
     index?: number;
     /** 省略 = 保留 glTF 文件里的变换。 */
@@ -65,17 +60,18 @@ export interface ModelHandle {
      */
     load(key: SceneKey): Promise<void>;
     /**
-     * 追加一个 glTF 文件里的全部 Instance。
+     * 追加一个 glTF 资产包里的全部 Instance。
      *
-     * `.gltf` 的外链资源需要 URL；Blob 可以是自包含 `.glb`、内嵌资源的
-     * `.gltf`，也可以是带 `.bin` / 贴图的 `.zip`（在 Worker 里解包）。
+     * `source` 是资产包字节：自包含 `.glb`、内嵌资源的 `.gltf`，或带
+     * `.bin` / 贴图的 `.zip`。URL 也由调用方自己 fetch 成 Blob 再传进来 ——
+     * 主线程只递字节，解析和解包都在 Worker。
      * 与 `load` 一样，结果是追加到当前场景，不是替换。
      */
-    loadGltf(source: GltfSource): Promise<void>;
+    loadGltf(source: Blob): Promise<void>;
     /**
-     * 从 glTF 里取一个 Instance，按 `placement` 摆放后追加到场景。
+     * 从 glTF 资产包里取一个 Instance，按 `placement` 摆放后追加到场景。
      *
-     * 外部可以连续调用它，把同一个或不同 glTF 里的节点一个一个摆进来。
+     * 外部可以连续调用它，把同一个或不同资产包里的节点一个一个摆进来。
      */
     loadInstance(instance: InstanceSpec): Promise<void>;
 }
@@ -89,7 +85,7 @@ export interface ModelHandle {
 /** 模型相关的 Worker 消息。 */
 export type ModelRequest =
     | { type: 'model/load'; id: number; key: SceneKey }
-    | { type: 'model/loadGltf'; id: number; source: GltfSource }
+    | { type: 'model/loadGltf'; id: number; source: Blob }
     | { type: 'model/loadInstance'; id: number; instance: InstanceSpec };
 
 /** 模型句柄需要的最小 RPC 面：一次带返回值的请求。 */
@@ -105,26 +101,13 @@ class RpcModel implements ModelHandle {
         return this.rpc.request<void>((id) => ({ type: 'model/load', id, key }));
     }
 
-    public loadGltf(source: GltfSource): Promise<void> {
-        return this.rpc.request<void>((id) => ({
-            type: 'model/loadGltf',
-            id,
-            source: resolveGltfSource(source),
-        }));
+    public loadGltf(source: Blob): Promise<void> {
+        return this.rpc.request<void>((id) => ({ type: 'model/loadGltf', id, source }));
     }
 
     public loadInstance(instance: InstanceSpec): Promise<void> {
-        return this.rpc.request<void>((id) => ({
-            type: 'model/loadInstance',
-            id,
-            instance: { ...instance, source: resolveGltfSource(instance.source) },
-        }));
+        return this.rpc.request<void>((id) => ({ type: 'model/loadInstance', id, instance }));
     }
-}
-
-/** URL 按页面地址解析；Worker 里没有页面上下文，相对路径会以 Worker 脚本为基准。 */
-function resolveGltfSource(source: GltfSource): GltfSource {
-    return typeof source === 'string' ? new URL(source, document.baseURI).href : source;
 }
 
 /** 主线程模型句柄的工厂：实现类不导出。 */

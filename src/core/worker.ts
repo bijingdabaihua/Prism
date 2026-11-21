@@ -13,7 +13,7 @@
  * `engine.addInstances`；顶层只留引擎本身、串行队列和回执。
  */
 // 纯类型导入：消息协议和门面同文件，编译后这条边会完全擦除。
-import type { CameraCommand, GltfSource, InstanceSpec, WorkerRequest, WorkerResponse } from './prism';
+import type { CameraCommand, InstanceSpec, WorkerRequest, WorkerResponse } from './prism';
 import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';
@@ -144,7 +144,7 @@ class WorkerHost {
      * 与场景 key 入口一样，最终都落到 `engine.addInstances`。三个入口都是
      * 追加语义，外部可以一个一个调用，把多个来源拼进同一个场景。
      */
-    private async loadGltf(id: number, source: GltfSource): Promise<void> {
+    private async loadGltf(id: number, source: Blob): Promise<void> {
         try {
             if (!this.engine) throw new Error('Prism 还没初始化');
             this.engine.addInstances(await Instance.buildByGltf(source));
