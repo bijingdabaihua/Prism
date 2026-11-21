@@ -28,6 +28,9 @@ export interface BackgroundHandle {
     setRotation(rotation: number): Promise<void>;
 }
 
+/** 主线程环境光句柄的工厂签名。具体实现放在文件末尾。 */
+export type BackgroundFactory = (rpc: BackgroundRpc) => BackgroundHandle;
+
 /**
  * 实现
  *
@@ -58,6 +61,6 @@ class RpcBackground implements BackgroundHandle {
 }
 
 /** 主线程环境光句柄的工厂：实现类不导出。 */
-export function createBackground(rpc: BackgroundRpc): BackgroundHandle {
+export const createBackground: BackgroundFactory = (rpc) => {
     return new RpcBackground(rpc);
-}
+};
