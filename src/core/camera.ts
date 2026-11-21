@@ -53,7 +53,7 @@ export interface CameraHandle {
      * 直接指定机位（完整一格，不是增量）。
      *
      * 外部装场景的顺序通常是 `set` → `background.setImage` /
-     * `background.setRotation` → `model.load`；装载几何不会改机位。
+     * `background.setRotation` → `scene.load`；装载几何不会改机位。
      */
     set(spec: CameraSpec): void;
     /**

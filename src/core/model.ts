@@ -1,8 +1,8 @@
 /**
  * 主线程模型句柄：契约 + 实现。
  *
- * 场景清单、文件解码、位移、BVH 全在 Worker 里；这边只递 key / 加载来源。
- * 创建入口是 `createModel(rpc)`，实现类不导出。
+ * 文件解码、位移、BVH 全在 Worker 里；这边只递资产字节。创建入口是
+ * `createModel(rpc)`，实现类不导出。
  */
 
 /**
@@ -10,9 +10,6 @@
  *
  * 以下类型和接口是对外 API。修改前先确认调用方影响。
  */
-
-/** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
-export type SceneKey = string;
 
 /** 一组实例的摆放，语义与场景构建器里的 `placeInstances` 一致。 */
 export interface InstancePlacement {
@@ -44,28 +41,16 @@ export interface InstanceSpec {
 /**
  * 模型句柄 —— 场景几何的远程入口。
  *
- * 场景清单、文件解码、位移、BVH 全在 Worker 里；这边只递 key / 来源。
+ * 文件解码、位移、BVH 全在 Worker 里；这边只递资产字节。
  */
 export interface ModelHandle {
-    /**
-     * 追加场景几何（按 key）。
-     *
-     * Promise 解决时几何 / 材质已经编译完（位移烘成真几何、BVH 建好、
-     * buffer 上传完）。机位和环境图不在这条消息里 —— 外部按自己的顺序
-     * 调 `camera.set()` / `background.setImage()` / `background.setRotation()`。
-     *
-     * 三个加载入口都是**追加**语义：可以反复调用、一个一个把实例加进同一个
-     * 场景。每次追加都会重建几何 / 材质 buffer，PathTracePass 自动发现版本
-     * 变化并清零累积。
-     */
-    load(key: SceneKey): Promise<void>;
     /**
      * 追加一个 glTF 资产包里的全部 Instance。
      *
      * `source` 是资产包字节：自包含 `.glb`、内嵌资源的 `.gltf`，或带
      * `.bin` / 贴图的 `.zip`。URL 也由调用方自己 fetch 成 Blob 再传进来 ——
      * 主线程只递字节，解析和解包都在 Worker。
-     * 与 `load` 一样，结果是追加到当前场景，不是替换。
+     * 结果是追加到当前场景，不是替换。
      */
     loadGltf(source: Blob): Promise<void>;
     /**
@@ -84,7 +69,6 @@ export interface ModelHandle {
 
 /** 模型相关的 Worker 消息。 */
 export type ModelRequest =
-    | { type: 'model/load'; id: number; key: SceneKey }
     | { type: 'model/loadGltf'; id: number; source: Blob }
     | { type: 'model/loadInstance'; id: number; instance: InstanceSpec };
 
@@ -93,13 +77,9 @@ export interface ModelRpc {
     request<T>(build: (id: number) => ModelRequest): Promise<T>;
 }
 
-/** 模型句柄的主线程实现：把三个加载入口翻成带 id 的请求。 */
+/** 模型句柄的主线程实现：把两个加载入口翻成带 id 的请求。 */
 class RpcModel implements ModelHandle {
     constructor(private readonly rpc: ModelRpc) {}
-
-    public load(key: SceneKey): Promise<void> {
-        return this.rpc.request<void>((id) => ({ type: 'model/load', id, key }));
-    }
 
     public loadGltf(source: Blob): Promise<void> {
         return this.rpc.request<void>((id) => ({ type: 'model/loadGltf', id, source }));

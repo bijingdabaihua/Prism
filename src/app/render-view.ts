@@ -162,14 +162,17 @@ export class RenderView {
             const card = SCENE_CARDS[this.key];
             if (!card) throw new Error(`没有场景 "${this.key}"`);
 
-            // 场景由外面一步一步装：机位 → 环境图 + 朝向 → 几何 → 开始监听
+            // 场景由外面一步一步装：机位 → 环境图 + 朝向 → 几何配方 → 开始监听
             this.updateLoading('Loading scene...');
             prism.camera.set(card.setup.camera);
             // 环境图以 Blob 交给 Worker：主线程只取字节，解码仍留在 Worker
             // setImage 从原图方向建好；场景需要别的朝向时再由 setRotation 转
             await prism.background.setImage(await fetchBlob(card.setup.env));
             await prism.background.setRotation(card.setup.envRotation ?? 0);
-            await prism.model.load(this.key);
+            // 配方也走 Blob：core 只传字节，格式由 Worker 里的 app/scenes 解释
+            await prism.scene.load(
+                new Blob([JSON.stringify(card.geometry)], { type: 'application/json' }),
+            );
             if (this.disposed) {
                 prism.dispose();
                 return;

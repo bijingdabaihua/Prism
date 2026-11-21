@@ -1,14 +1,15 @@
 import type { CameraSpec } from '../../core/prism';
+import type { SceneRecipe } from './recipe';
 
 /**
- * 场景元数据：画廊卡片 + 外面装场景要用的机位 / 环境图。
+ * 场景元数据：画廊卡片 + 外面装场景要用的机位 / 环境图 / 几何配方。
  *
- * 纯数据，不 import 任何场景构建器 / 导入器 —— 主线程（画廊、渲染页）读它时
- * 不会把 glTF / blend / 图像解码器打进首屏 chunk。几何怎么造仍然只在
- * `manifest.ts` 里写，Worker 按 key 查。
+ * 纯数据：不 import 任何场景构建器 / 导入器，配方类型也只做 type-only 导入。
+ * 主线程（画廊、渲染页）读它时不会把 glTF / blend / 图像解码器打进首屏 chunk；
+ * 解释配方的是 Worker 里的 `recipe.ts`。
  *
  * 装场景的顺序由外部决定：先 `camera.set`，再 `background.setImage` /
- * `background.setRotation`，然后 `model.load`，最后 `camera.listen`。
+ * `background.setRotation`，然后 `scene.load`，最后 `camera.listen`。
  */
 
 /** 渲染器需要、几何之外的场景参数。 */
@@ -30,6 +31,8 @@ export interface SceneCard {
     /** 画廊封面；缺省时卡片显示占位底纹。放在 assets/gallery/<key>.png */
     cover?: string;
     setup: SceneSetup;
+    /** 几何配方；交给 Worker 后由 `app/scenes/recipe.ts` 解释。 */
+    geometry: SceneRecipe;
 }
 
 /**
@@ -77,6 +80,44 @@ const VASE_CAMERA: CameraSpec = {
     focusDistance: 0,
 };
 
+/**
+ * 荒地的几何：3×3 块 2.11 m 的砂土地砖 + 青花瓷罐 + 枯枝。
+ *
+ * 这里只放数据；怎么把 glTF 和程序化地面变成 Instance 是 `recipe.ts` 的事。
+ */
+const VASE_ON_DIRT_GEOMETRY: SceneRecipe = {
+    objects: [
+        {
+            type: 'tiled-ground',
+            material: '/textures/forest_ground_06/forest_ground_06.blend',
+            // 一格贴图 2.11 m；砖心落在 ±2.11，铺出来正好 3×3 块、6.33 m 见方。
+            tile: 2.11,
+            x0: -2.11,
+            x1: 2.11,
+            z0: -2.11,
+            z1: 2.11,
+        },
+        {
+            type: 'gltf',
+            url: '/model/antique_ceramic_vase_01/antique_ceramic_vase_01_1k.gltf',
+            // 罐子正对原点：底面就在 y = 0，直接坐在砂土上。
+            placement: { position: { x: 0, y: 0, z: 0 }, rotationY: 0.4 },
+        },
+        {
+            type: 'gltf',
+            url: '/model/dead_quiver_branch_01/dead_quiver_branch_01_1k.gltf',
+            // 枯枝躺在地上：绕 X 放倒 90°，再绕 Y 转 22° 斜着躺进画面右下角。
+            // 抬 9 cm 是因为放倒之后最低点（原来是 −z 方向的那一侧）在 y = −0.097，
+            // 少抬 7 mm 让它陷进土里一点，别像搁在玻璃上。
+            placement: {
+                position: { x: 0.04, y: 0.09, z: -0.27 },
+                rotationX: -Math.PI / 2,
+                rotationY: 0.38,
+            },
+        },
+    ],
+};
+
 export const SCENE_CARDS: Readonly<Record<string, SceneCard>> = {
     'vase-on-dirt': {
         title: '荒地',
@@ -88,5 +129,6 @@ export const SCENE_CARDS: Readonly<Record<string, SceneCard>> = {
             env: '/env/sundowner_overlook_2k.exr',
             envRotation: SUN_ROTATION,
         },
+        geometry: VASE_ON_DIRT_GEOMETRY,
     },
 };

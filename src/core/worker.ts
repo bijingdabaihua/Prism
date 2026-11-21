@@ -5,8 +5,8 @@
  * Worker 自己建的 OffscreenCanvas，主线程从头到尾不碰 GPU。画面通过
  * `camera.listen()` 以 ImageBitmap 推回主线程 —— 每间隔最多一帧。
  *
- * 这里也是 core 唯一 import app/ 的地方：场景清单（`app/scenes/manifest`）
- * 从这里插进渲染器，其余 core 代码不认识任何具体场景。
+ * 这里也是 core 唯一 import app/ 的地方：场景配方解释器
+ * （`app/scenes/recipe`）从这里插进渲染器，其余 core 代码不认识任何具体场景。
  *
  * 运行态全部挂在 `WorkerHost` 一个实例上。消息语义沉到 Engine —— 机位命令和
  * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`，几何委托
@@ -18,7 +18,7 @@ import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';
 import { Instance, placeInstances } from './ir/instance';
-import { SCENES } from '../app/scenes/manifest';
+import { buildScene } from '../app/scenes/recipe';
 
 /**
  * Worker 的运行态：一个引擎 + 一条串行队列。
@@ -60,8 +60,8 @@ class WorkerHost {
             case 'background/setRotation':
                 this.enqueue(() => this.setRotation(request.id, request.rotation));
                 return;
-            case 'model/load':
-                this.enqueue(() => this.loadModel(request.id, request.key));
+            case 'scene/load':
+                this.enqueue(() => this.loadScene(request.id, request.source));
                 return;
             case 'model/loadGltf':
                 this.enqueue(() => this.loadGltf(request.id, request.source));
@@ -119,19 +119,23 @@ class WorkerHost {
     }
 
     /**
-     * 追加场景几何：清单查表 → 造 Instance → 交给引擎编译。
+     * 追加场景几何：配方 JSON → Instance → 交给引擎编译。
      *
+     * 配方格式由 `app/scenes/recipe` 定义；core 只负责把字节解成 JSON。
      * 机位和环境图不在这条消息里 —— 外部按自己的顺序调 `camera.set` /
      * `background.setImage`，引擎等三者都到位才出图。
      */
-    private async loadModel(id: number, key: string): Promise<void> {
+    private async loadScene(id: number, source: Blob): Promise<void> {
         try {
             if (!this.engine) throw new Error('Prism 还没初始化');
-            const build = SCENES[key];
-            if (!build) {
-                throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
+            const text = await source.text();
+            let recipe: unknown;
+            try {
+                recipe = JSON.parse(text);
+            } catch {
+                throw new Error('场景配方不是合法 JSON');
             }
-            this.engine.addInstances(await build());
+            this.engine.addInstances(await buildScene(recipe));
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));
@@ -141,7 +145,7 @@ class WorkerHost {
     /**
      * 加载一个 glTF 文件里的全部 Instance，追加到当前场景。
      *
-     * 与场景 key 入口一样，最终都落到 `engine.addInstances`。三个入口都是
+     * 与场景配方入口一样，最终都落到 `engine.addInstances`。模型入口都是
      * 追加语义，外部可以一个一个调用，把多个来源拼进同一个场景。
      */
     private async loadGltf(id: number, source: Blob): Promise<void> {
