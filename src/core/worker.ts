@@ -12,7 +12,8 @@
  * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`，几何委托
  * `engine.setInstances`；顶层只留引擎本身、串行队列和回执。
  */
-import type { CameraCommand, WorkerRequest, WorkerResponse } from './protocol';
+// 纯类型导入：消息协议和门面同文件，编译后这条边会完全擦除。
+import type { CameraCommand, WorkerRequest, WorkerResponse } from './prism';
 import { WebGPUUnavailableError } from './engine/context';
 import { Engine } from './engine/engine';
 import { loadImage } from './ir/image';

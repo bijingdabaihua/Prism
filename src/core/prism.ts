@@ -1,13 +1,10 @@
 /**
  * core 的公共面，也是主线程侧的全部实现。
  *
- * 门面、RPC、三个句柄和错误类型都收在这一个文件里 —— 主线程只从
- * `core/prism` 拿东西。Worker 两侧共用的消息类型仍放在 `protocol.ts`
- * （纯类型，主线程与 Worker 都只做 `import type`）。
+ * 门面、RPC、三个句柄、错误类型和两端共用的消息协议都收在这一个文件里。
+ * 主线程只从 `core/prism` 拿东西；Worker 只从同一文件做纯类型导入，
+ * 编译后不留下运行时依赖。
  */
-import type { CameraSpec, SceneKey, ViewportSize, WorkerRequest, WorkerResponse } from './protocol';
-
-export type { CameraSpec, SceneKey, ViewportSize };
 
 /**
  * 门面：起 Worker、装配三个句柄、管生命周期。
@@ -85,6 +82,76 @@ export class Prism {
         this.worker.terminate();
     }
 }
+
+/** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
+export type SceneKey = string;
+
+/** 渲染视口尺寸（物理像素 = CSS 尺寸 × devicePixelRatio）。 */
+export interface ViewportSize {
+    width: number;
+    height: number;
+}
+
+/**
+ * 观察模型：绕 target 的轨道相机。
+ *
+ * 这是本渲染器的机位语义，不是 ir/CameraView 的拷贝 —— 结构一样只是巧合，
+ * 业务契约不跟着 IR 变。
+ */
+export interface CameraSpec {
+    target: { x: number; y: number; z: number };
+    /** 相机到 target 的距离（米，轨道半径）。 */
+    distance: number;
+    /** 水平角，π/2 表示从 +z 方向看过来。 */
+    theta: number;
+    /** 俯仰角，π/2 是水平视线，越小相机越高。 */
+    phi: number;
+    /** 垂直视野角，弧度。 */
+    fovY: number;
+    /** 入射光瞳半径（米）。省略或 0 = 针孔。 */
+    apertureRadius?: number;
+    /** 对焦距离（米）。需要和 apertureRadius 一起给才生效。 */
+    focusDistance?: number;
+}
+
+/** 机位命令：全部是「照做」的写操作，没有返回值。 */
+export type CameraCommand =
+    | { type: 'set'; spec: CameraSpec }
+    | { type: 'reset' }
+    | { type: 'resize'; size: ViewportSize }
+    | { type: 'orbit'; deltaTheta: number; deltaPhi: number }
+    | { type: 'zoom'; factor: number }
+    | { type: 'pan'; deltaX: number; deltaY: number };
+
+/**
+ * 主线程 → Worker。
+ *
+ * 两类消息：写操作（机位命令）没有 id；有返回值的调用带自增 id，
+ * Worker 用 result / failure 回执。「跑不了 WebGPU」单独一种回执，
+ * 主线程据此转成 PrismUnsupportedError。
+ */
+export type WorkerRequest =
+    | { type: 'init'; id: number }
+    | { type: 'camera'; command: CameraCommand }
+    /** 开始按间隔把画面推回主线程。 */
+    | { type: 'listen/start'; intervalMs: number }
+    | { type: 'listen/stop' }
+    /** 换环境图；rotation 是绕 +y 的弧度，省略 = 原图方向。 */
+    | { type: 'background/setImage'; id: number; url: string; rotation?: number }
+    | { type: 'background/setRotation'; id: number; rotation: number }
+    /** 装载场景几何：读清单 → 造 Instance → 编译材质 / BVH。 */
+    | { type: 'model/load'; id: number; key: SceneKey };
+
+/** Worker → 主线程。 */
+export type WorkerResponse =
+    /** 成功了：value 是这次调用的返回值（void 调用不带）。 */
+    | { type: 'result'; id: number; value?: unknown }
+    /** 这次调用失败了。 */
+    | { type: 'failure'; id: number; message: string }
+    /** 这台机器跑不了 WebGPU。 */
+    | { type: 'unsupported'; id: number; message: string }
+    /** 一帧画面（listen 的推送，没有 id）。 */
+    | { type: 'frame'; bitmap: ImageBitmap };
 
 /**
  * 相机句柄 —— 所有方法都是同步的，调用即返回，不等帧。
