@@ -18,7 +18,8 @@ export type SceneKey = string;
  * glTF 来源。
  *
  * URL 按页面地址解析，可以解析 `.gltf` 的外链 buffer / 贴图；Blob 适合
- * 自包含的 `.glb` 或资源都用 data URI 内嵌的文件。
+ * 自包含的 `.glb`、资源都用 data URI 内嵌的文件，或者下载来的 `.zip` ——
+ * Worker 会解开 ZIP 并把里面的相对路径接上，不需要主线程先解压。
  */
 export type GltfSource = string | Blob;
 
@@ -66,7 +67,8 @@ export interface ModelHandle {
     /**
      * 追加一个 glTF 文件里的全部 Instance。
      *
-     * `.gltf` 的外链资源需要 URL；Blob 用自包含 `.glb` 或内嵌资源。
+     * `.gltf` 的外链资源需要 URL；Blob 可以是自包含 `.glb`、内嵌资源的
+     * `.gltf`，也可以是带 `.bin` / 贴图的 `.zip`（在 Worker 里解包）。
      * 与 `load` 一样，结果是追加到当前场景，不是替换。
      */
     loadGltf(source: GltfSource): Promise<void>;
