@@ -1,10 +1,21 @@
 /**
- * core 的公共面，也是主线程侧的全部实现。
+ * core 的公共面：门面 + 主线程 RPC + 消息协议 + 错误。
  *
- * 门面、RPC、三个句柄、错误类型和两端共用的消息协议都收在这一个文件里。
- * 主线程只从 `core/prism` 拿东西；Worker 只从同一文件做纯类型导入，
- * 编译后不留下运行时依赖。
+ * 三个句柄的契约和主线程实现分别在 `camera.ts` / `background.ts` / `model.ts`；
+ * 本文件只负责装配它们。主线程只从 `core/prism` 拿东西；Worker 只从同一文件
+ * 做纯类型导入，编译后不留下运行时依赖。
  */
+
+import type { BackgroundHandle, BackgroundRequest } from './background';
+import type { CameraHandle, CameraRequest } from './camera';
+import type { ModelHandle, ModelRequest } from './model';
+import { createBackground } from './background';
+import { createCamera } from './camera';
+import { createModel } from './model';
+
+export type { BackgroundHandle } from './background';
+export type { CameraHandle, CameraSpec, ViewportSize } from './camera';
+export type { ModelHandle, SceneKey } from './model';
 
 /**
  * 公开契约
@@ -13,120 +24,11 @@
  * 具体实现从本文件的「实现」一节开始。
  */
 
-/** 业务层的场景标识，来自 app/scenes/manifest.ts 的 SCENES 清单。 */
-export type SceneKey = string;
-
-/** 渲染视口尺寸（物理像素 = CSS 尺寸 × devicePixelRatio）。 */
-export interface ViewportSize {
-    width: number;
-    height: number;
-}
-
-/**
- * 观察模型：绕 target 的轨道相机。
- *
- * 这是本渲染器的机位语义，不是 ir/CameraView 的拷贝 —— 结构一样只是巧合，
- * 业务契约不跟着 IR 变。
- */
-export interface CameraSpec {
-    target: { x: number; y: number; z: number };
-    /** 相机到 target 的距离（米，轨道半径）。 */
-    distance: number;
-    /** 水平角，π/2 表示从 +z 方向看过来。 */
-    theta: number;
-    /** 俯仰角，π/2 是水平视线，越小相机越高。 */
-    phi: number;
-    /** 垂直视野角，弧度。 */
-    fovY: number;
-    /** 入射光瞳半径（米）。省略或 0 = 针孔。 */
-    apertureRadius?: number;
-    /** 对焦距离（米）。需要和 apertureRadius 一起给才生效。 */
-    focusDistance?: number;
-}
-
-/**
- * 相机句柄 —— 所有方法都是同步的，调用即返回，不等帧。
- *
- * 宽高比是投影的一部分，所以尺寸挂在相机上（`resize`），而不是画布上：
- * 相机不知道自己画到哪块画布，只知道画面有多宽。
- *
- * 角度单位一律是弧度，位移单位一律是屏幕像素 —— 前者是相机语义，后者
- * 直接接指针事件，中间的手感系数（比如每像素转多少弧度）留在业务层。
- */
-export interface CameraHandle {
-    /**
-     * 直接指定机位（完整一格，不是增量）。
-     *
-     * 外部装场景的顺序通常是 `set` → `background.setImage` → `model.load`；
-     * 装载几何不会改机位。
-     */
-    set(spec: CameraSpec): void;
-    /**
-     * 回到场景自带的机位；还没装场景时回到内置的默认机位
-     * （原点、5 m 远、水平视线、垂直视野 60°）。
-     */
-    reset(): void;
-    /** 视口尺寸（物理像素）。宽高比跟着它走。 */
-    resize(size: ViewportSize): void;
-    /** 绕 target 旋转，单位弧度。phi 夹在 (0, π) 之间，翻不过头顶。 */
-    orbit(deltaTheta: number, deltaPhi: number): void;
-    /** 推拉：>1 拉远，<1 推近。乘性，拖多远都是等比例。 */
-    zoom(factor: number): void;
-    /** 平移 target，单位是屏幕像素 —— 直接接指针的位移。 */
-    pan(deltaX: number, deltaY: number): void;
-    /**
-     * 按间隔把当前画面推回来 —— 画面是相机的输出，所以挂在相机上。
-     *
-     * 每 `intervalMs` 毫秒最多推一帧；渲染比它慢就等下一帧，不重复推同一张。
-     * 推回来的是 `ImageBitmap`：主线程用 bitmaprenderer 的
-     * `transferFromImageBitmap()` 直接贴上去，不经过读回和编码。
-     *
-     * 返回取消函数。同一时刻只允许一个监听者。
-     */
-    listen(intervalMs: number, onFrame: (frame: ImageBitmap) => void): () => void;
-}
-
-/**
- * 环境光句柄：契约 + 主线程侧实现。
- *
- * URL 交给 Worker 去解码、上传 —— 主线程不碰像素。
- */
-export interface BackgroundHandle {
-    /**
-     * 设置环境图（URL）。重复调用即换背景；Promise 解决时纹理和 CDF 已经就位。
-     *
-     * `rotation` 是绕 +y 的弧度，用于对齐 HDR 里太阳的方位；省略 = 原图方向。
-     */
-    setImage(url: string, rotation?: number): Promise<void>;
-    /**
-     * 旋转当前环境图（绕 +y 的弧度）。需要先 setImage；转完纹理和 CDF 一起
-     * 重建，Promise 解决时已经生效。
-     */
-    setRotation(rotation: number): Promise<void>;
-}
-
-/**
- * 模型句柄：契约 + 主线程侧实现。
- *
- * 场景清单、文件解码、位移、BVH 全在 Worker 里；这边只递一个 key。
- */
-export interface ModelHandle {
-    /**
-     * 装载场景几何（按 key）。
-     *
-     * Promise 解决时几何 / 材质已经编译完（位移烘成真几何、BVH 建好、
-     * buffer 上传完）。机位和环境图不在这条消息里 —— 外部按自己的顺序
-     * 调 `camera.set()` / `background.setImage()`。
-     *
-     * 一个 Prism 只装一份几何；换场景就换 Prism。
-     */
-    load(key: SceneKey): Promise<void>;
-}
-
 /**
  * 门面契约（实例侧）。
  *
  * 创建入口是 `Prism.create()`；实例只暴露三个只读句柄和 `dispose()`。
+ * 三个句柄的契约分别在 `camera.ts` / `background.ts` / `model.ts`。
  */
 export interface Prism {
     /** 观察者：机位控制。 */
@@ -155,17 +57,11 @@ export class PrismUnsupportedError extends Error {
 /**
  * 实现
  *
- * 以下内容不属于公开契约：内部消息协议、门面的具体实现和 RPC 句柄。
+ * 以下内容不属于公开契约：内部消息协议、门面的具体实现和主线程 RPC。
  */
 
-/** 机位命令：全部是「照做」的写操作，没有返回值。 */
-export type CameraCommand =
-    | { type: 'set'; spec: CameraSpec }
-    | { type: 'reset' }
-    | { type: 'resize'; size: ViewportSize }
-    | { type: 'orbit'; deltaTheta: number; deltaPhi: number }
-    | { type: 'zoom'; factor: number }
-    | { type: 'pan'; deltaX: number; deltaY: number };
+/** Worker 侧机位命令类型；由 camera.ts 的实现段定义。 */
+export type { CameraCommand } from './camera';
 
 /**
  * 主线程 → Worker。
@@ -173,18 +69,14 @@ export type CameraCommand =
  * 两类消息：写操作（机位命令）没有 id；有返回值的调用带自增 id，
  * Worker 用 result / failure 回执。「跑不了 WebGPU」单独一种回执，
  * 主线程据此转成 PrismUnsupportedError。
+ *
+ * 三个句柄的消息形状由各自的文件定义，这里只做汇总。
  */
 export type WorkerRequest =
     | { type: 'init'; id: number }
-    | { type: 'camera'; command: CameraCommand }
-    /** 开始按间隔把画面推回主线程。 */
-    | { type: 'listen/start'; intervalMs: number }
-    | { type: 'listen/stop' }
-    /** 换环境图；rotation 是绕 +y 的弧度，省略 = 原图方向。 */
-    | { type: 'background/setImage'; id: number; url: string; rotation?: number }
-    | { type: 'background/setRotation'; id: number; rotation: number }
-    /** 装载场景几何：读清单 → 造 Instance → 编译材质 / BVH。 */
-    | { type: 'model/load'; id: number; key: SceneKey };
+    | CameraRequest
+    | BackgroundRequest
+    | ModelRequest;
 
 /** Worker → 主线程。 */
 export type WorkerResponse =
@@ -200,9 +92,9 @@ export type WorkerResponse =
 /**
  * 门面：起 Worker、装配三个句柄、管生命周期。
  *
- * 实际渲染跑在 Worker 里 —— 一个实例一个 Worker、一个独立 GPUDevice，
- * 主线程从头到尾不碰 GPU。实例只对外暴露 camera / background / model
- * 三个只读句柄；各自的契约和主线程实现都在本文件。
+ * 三个句柄的契约和主线程实现分别在 camera.ts / background.ts / model.ts；
+ * 这里只负责创建和持有。实际渲染跑在 Worker 里 —— 一个实例一个 Worker、
+ * 一个独立 GPUDevice，主线程从头到尾不碰 GPU。
  *
  * 业务层只认识这个门面。画面是相机的输出：`camera.listen(interval, cb)`
  * 每 interval 毫秒把一帧 ImageBitmap 推回主线程，worker 内部自己持有画布。
@@ -255,9 +147,9 @@ class PrismImpl implements Prism {
         rpc: RpcClient,
     ) {
         this.rpc = rpc;
-        this.camera = new RpcCamera(rpc);
-        this.background = new RpcBackground(rpc);
-        this.model = new RpcModel(rpc);
+        this.camera = createCamera(rpc);
+        this.background = createBackground(rpc);
+        this.model = createModel(rpc);
     }
 
     /**
@@ -287,8 +179,8 @@ export const Prism: PrismFactory & typeof PrismImpl = PrismImpl;
  * 同一个 MessagePort 上的消息是 FIFO —— 所以 `camera.set()` 之后立刻
  * `camera.listen()`，Worker 一定先看到机位，再开始推帧。
  *
- * 三个句柄只认识这个类：各自把方法翻译成一条 WorkerRequest，
- * 不管 Worker 里怎么实现。
+ * 三个句柄只通过各自的最小 RPC 接口使用它：该发消息的发消息、该发请求的
+ * 发请求，谁都不认识 Worker 里的实现。具体类本身不导出。
  */
 class RpcClient {
     private nextId = 1;
@@ -359,76 +251,6 @@ class RpcClient {
         if (!pending) return;
         this.pending.delete(id);
         act(pending);
-    }
-}
-
-/** 相机句柄的主线程实现：每条命令原样转给 Worker，不等回执。 */
-class RpcCamera implements CameraHandle {
-    private listener: ((frame: ImageBitmap) => void) | null = null;
-
-    constructor(private readonly rpc: RpcClient) {}
-
-    public set(spec: CameraSpec): void {
-        this.rpc.send({ type: 'camera', command: { type: 'set', spec } });
-    }
-
-    public reset(): void {
-        this.rpc.send({ type: 'camera', command: { type: 'reset' } });
-    }
-
-    public resize(size: ViewportSize): void {
-        this.rpc.send({ type: 'camera', command: { type: 'resize', size } });
-    }
-
-    public orbit(deltaTheta: number, deltaPhi: number): void {
-        this.rpc.send({ type: 'camera', command: { type: 'orbit', deltaTheta, deltaPhi } });
-    }
-
-    public zoom(factor: number): void {
-        this.rpc.send({ type: 'camera', command: { type: 'zoom', factor } });
-    }
-
-    public pan(deltaX: number, deltaY: number): void {
-        this.rpc.send({ type: 'camera', command: { type: 'pan', deltaX, deltaY } });
-    }
-
-    public listen(intervalMs: number, onFrame: (frame: ImageBitmap) => void): () => void {
-        if (this.listener) throw new Error('camera.listen：已经有一个监听者');
-        this.listener = onFrame;
-        this.rpc.setFrameHandler(onFrame);
-        this.rpc.send({ type: 'listen/start', intervalMs });
-        return () => {
-            if (this.listener !== onFrame) return;
-            this.listener = null;
-            this.rpc.setFrameHandler(null);
-            try {
-                this.rpc.send({ type: 'listen/stop' });
-            } catch {
-                // 已经 dispose：Worker 都没了，不用停
-            }
-        };
-    }
-}
-
-/** 环境光句柄的主线程实现。 */
-class RpcBackground implements BackgroundHandle {
-    constructor(private readonly rpc: RpcClient) {}
-
-    public setImage(url: string, rotation?: number): Promise<void> {
-        return this.rpc.request<void>((id) => ({ type: 'background/setImage', id, url, rotation }));
-    }
-
-    public setRotation(rotation: number): Promise<void> {
-        return this.rpc.request<void>((id) => ({ type: 'background/setRotation', id, rotation }));
-    }
-}
-
-/** 模型句柄的主线程实现。 */
-class RpcModel implements ModelHandle {
-    constructor(private readonly rpc: RpcClient) {}
-
-    public load(key: SceneKey): Promise<void> {
-        return this.rpc.request<void>((id) => ({ type: 'model/load', id, key }));
     }
 }
 
