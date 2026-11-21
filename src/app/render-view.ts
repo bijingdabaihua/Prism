@@ -162,10 +162,12 @@ export class RenderView {
             const card = SCENE_CARDS[this.key];
             if (!card) throw new Error(`没有场景 "${this.key}"`);
 
-            // 场景由外面一步一步装：机位 → 环境图 → 几何 → 开始监听
+            // 场景由外面一步一步装：机位 → 背景朝向 → 环境图 → 几何 → 开始监听
             this.updateLoading('Loading scene...');
             prism.camera.set(card.setup.camera);
-            await prism.background.setImage(card.setup.env, card.setup.envRotation);
+            // 先定朝向，再装图：setImage 按当前朝向一次建好纹理和 CDF
+            await prism.background.setRotation(card.setup.envRotation ?? 0);
+            await prism.background.setImage(card.setup.env);
             await prism.model.load(this.key);
             if (this.disposed) {
                 prism.dispose();

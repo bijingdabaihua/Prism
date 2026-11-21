@@ -18,12 +18,16 @@ export interface BackgroundHandle {
     /**
      * 设置环境图（URL）。重复调用即换背景；Promise 解决时纹理和 CDF 已经就位。
      *
-     * `rotation` 是绕 +y 的弧度，用于对齐 HDR 里太阳的方位；省略 = 原图方向。
+     * 只换图，不动当前朝向 —— 朝向是独立状态，由 `setRotation` 负责。
      */
-    setImage(url: string, rotation?: number): Promise<void>;
+    setImage(url: string): Promise<void>;
     /**
-     * 旋转当前环境图（绕 +y 的弧度）。需要先 setImage；转完纹理和 CDF 一起
-     * 重建，Promise 解决时已经生效。
+     * 设置环境图朝向（绕 +y 的弧度）。
+     *
+     * 已经有图时立即重建纹理和 CDF；还没有图时只记住角度，等 setImage 时
+     * 一次建好。两种情况 Promise 解决时角度都已经确定。
+     *
+     * 朝向是独立状态：之后再换图，朝向保持不变。
      */
     setRotation(rotation: number): Promise<void>;
 }
@@ -36,7 +40,7 @@ export interface BackgroundHandle {
 
 /** 环境光相关的 Worker 消息。 */
 export type BackgroundRequest =
-    | { type: 'background/setImage'; id: number; url: string; rotation?: number }
+    | { type: 'background/setImage'; id: number; url: string }
     | { type: 'background/setRotation'; id: number; rotation: number };
 
 /** 环境光句柄需要的最小 RPC 面：一次带返回值的请求。 */
@@ -48,8 +52,8 @@ export interface BackgroundRpc {
 class RpcBackground implements BackgroundHandle {
     constructor(private readonly rpc: BackgroundRpc) {}
 
-    public setImage(url: string, rotation?: number): Promise<void> {
-        return this.rpc.request<void>((id) => ({ type: 'background/setImage', id, url, rotation }));
+    public setImage(url: string): Promise<void> {
+        return this.rpc.request<void>((id) => ({ type: 'background/setImage', id, url }));
     }
 
     public setRotation(rotation: number): Promise<void> {

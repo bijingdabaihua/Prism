@@ -16,11 +16,13 @@ import type { Image } from '../ir/image';
  * 过滤性是要单独申请的设备特性。半浮点的范围（65504）对 HDRI 绰绰有余，太阳
  * 也就几千。
  *
- * setImage() 可以重复调用：每调一次换一张环境图（门面的 background.setImage
- * 就是这么用的）。纹理和 CDF 在这一次里直接建好 —— 没有「待上传」状态。
+ * setImage() 只负责换源：每调一次换一张环境图（门面的 background.setImage
+ * 就是这么用的），朝向沿用当前值。纹理和 CDF 在这一次里直接建好 ——
+ * 没有「待上传」状态。
  *
- * 环境图绕 +y 的旋转也在这里做：外部给原图和角度，Background 先转图、再建
- * 纹理和 CDF，采样与 pdf 仍然自洽。转过的图进 GPU 之前不会留下任何来源信息。
+ * 环境图绕 +y 的旋转由 setRotation() 单独负责：已经有图时从保留的原图
+ * 重新转图、建纹理和 CDF；还没有图时只记角度，等 setImage() 时一次建好。
+ * 采样与 pdf 仍然自洽，转过的图进 GPU 之前不会留下任何来源信息。
  *
  * 没有「没有环境图」这个状态：构造时也不预留占位图，setImage 之前就是还没有。
  * `hasEnvironment()` 是 PathTracePass 的出图条件之一 —— 另一条是 Model 编译完。
@@ -35,7 +37,7 @@ export class Background {
     private envDistBuf: GPUBuffer | null = null;
     /** 未旋转的原图，供 setRotation 重编译；setImage 之前为 null。 */
     private source: Image | null = null;
-    /** 当前原图绕 +y 的旋转（弧度）。 */
+    /** 当前 / 下一张原图绕 +y 的旋转（弧度）。 */
     private rotation = 0;
     /** 每换一次图 / 转一次 +1。渲染管线据此重建 bind group、清零累积。 */
     private versionCounter = 0;
@@ -46,30 +48,29 @@ export class Background {
     }
 
     /**
-     * 编译环境图 —— 整个生命周期只调用一次。
-     *
-     * `rotation` 是绕 +y 的弧度，场景用它把 HDR 里已有的太阳方位对齐到构图
-     * 需要的位置。转的是 CPU 像素，构建 CDF 时用的已经是转过的图。
+     * 设置环境图 —— 只换源，朝向沿用当前值。
      *
      * 原图会留在内存里给 setRotation 用 —— 环境图只有一张，这份解码后的
      * 浮点数据换来运行时改朝向，不用重新解码文件。
      */
-    public setImage(image: Image, rotation = 0): void {
+    public setImage(image: Image): void {
         if (image.layout !== 'equirect') {
             throw new Error(`Unsupported environment layout: ${image.layout}`);
         }
-        this.upload(image, rotation);
+        this.upload(image, this.rotation);
     }
 
     /**
-     * 换环境图的朝向：原图不动，按新角度重新建纹理和亮度 CDF。
+     * 设置环境图朝向：原图不动，按新角度建纹理和亮度 CDF。
      *
-     * 角度与 setImage 的 `rotation` 同一套定义。改完 version 会变，累积清零；
-     * 还没有环境图时抛错。
+     * 还没有环境图时只记住角度，等 setImage() 时一次建好；已经有图时立即
+     * 重建，version 递增、累积清零。角度是绕 +y 的弧度，与场景数据里的
+     * `envRotation` 同一套定义。
      */
     public setRotation(rotation: number): void {
         if (!this.source) {
-            throw new Error('Background: 还没有环境图，先 setImage');
+            this.rotation = rotation;
+            return;
         }
         if (rotation === this.rotation) return;
         this.upload(this.source, rotation);
