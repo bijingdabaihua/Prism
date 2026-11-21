@@ -7,8 +7,8 @@ import type { CameraSpec } from '../../core/prism';
  * 不会把 glTF / blend / 图像解码器打进首屏 chunk。几何怎么造仍然只在
  * `manifest.ts` 里写，Worker 按 key 查。
  *
- * 装场景的顺序由外部决定：先 `camera.set`，再 `background.setRotation` /
- * `background.setImage`，然后 `model.load`，最后 `camera.listen`。
+ * 装场景的顺序由外部决定：先 `camera.set`，再 `background.setImage` /
+ * `background.setRotation`，然后 `model.load`，最后 `camera.listen`。
  */
 
 /** 渲染器需要、几何之外的场景参数。 */

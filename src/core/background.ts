@@ -16,18 +16,13 @@
  */
 export interface BackgroundHandle {
     /**
-     * 设置环境图（URL）。重复调用即换背景；Promise 解决时纹理和 CDF 已经就位。
-     *
-     * 只换图，不动当前朝向 —— 朝向是独立状态，由 `setRotation` 负责。
+     * 设置环境图（URL）。每次换图都从原图方向开始；需要朝向就调用
+     * `setRotation`。Promise 解决时纹理和 CDF 已经就位。
      */
     setImage(url: string): Promise<void>;
     /**
-     * 设置环境图朝向（绕 +y 的弧度）。
-     *
-     * 已经有图时立即重建纹理和 CDF；还没有图时只记住角度，等 setImage 时
-     * 一次建好。两种情况 Promise 解决时角度都已经确定。
-     *
-     * 朝向是独立状态：之后再换图，朝向保持不变。
+     * 旋转当前环境图（绕 +y 的弧度）。需要先 setImage；转完纹理和 CDF 一起
+     * 重建，Promise 解决时已经生效。
      */
     setRotation(rotation: number): Promise<void>;
 }

@@ -25,7 +25,7 @@ export interface ModelHandle {
      *
      * Promise 解决时几何 / 材质已经编译完（位移烘成真几何、BVH 建好、
      * buffer 上传完）。机位和环境图不在这条消息里 —— 外部按自己的顺序
-     * 调 `camera.set()` / `background.setRotation()` / `background.setImage()`。
+     * 调 `camera.set()` / `background.setImage()` / `background.setRotation()`。
      *
      * 一个 Prism 只装一份几何；换场景就换 Prism。
      */

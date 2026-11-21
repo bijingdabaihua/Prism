@@ -97,13 +97,10 @@ class WorkerHost {
     }
 
     /**
-     * 设置环境图朝向。
+     * 旋转环境图：不重新解码，拿 Background 留着的原图按新角度重建纹理和 CDF。
      *
-     * 已经有图时拿 Background 留着的原图按新角度重建纹理和 CDF；还没有图时
-     * 只记下角度，等 setImage 时一起建。不重新解码。
-     *
-     * 角度是绕 +y 的弧度，和场景数据里的 `envRotation` 同一套定义。累积会
-     * 自动清零 —— Background.version() 变了，下一帧重建 bind group。
+     * 需要先 setImage。角度是绕 +y 的弧度，和场景数据里的 `envRotation` 同一套
+     * 定义。累积会自动清零 —— Background.version() 变了，下一帧重建 bind group。
      */
     private async setRotation(id: number, rotation: number): Promise<void> {
         try {
