@@ -13,7 +13,8 @@ import { packPBRMaterial, PBR_MAT_FLOATS } from './packing';
  * 材质表同时也持有所属的 TextureSet：材质表里的 TexRef 就是图集的层号，
  * 两者是一份数据的两半，分开持有只会多一个构造函数参数。
  *
- * 生命周期和场景一样：register() 收集、compile() 一次写进 SSBO，之后只读。
+ * register() 可以随场景追加反复调用；compile() 按当前已注册的材质重建 SSBO，
+ * 返回上一块 SSBO —— 交给 Model 在 GPU 用完后再释放。
  */
 export class MaterialStore {
     /** 材质采样的图集；PathTracePass 直接从这里拿四个数组的 view。 */
@@ -39,8 +40,13 @@ export class MaterialStore {
         return index;
     }
 
-    /** 把所有已注册的材质写进一块 SSBO —— 整个场景只做一次。 */
-    public compile(): void {
+    /**
+     * 把所有已注册的材质写进一块新 SSBO，返回上一块（首次编译时为 null）。
+     *
+     * 材质表只增不减，所以追加场景时整块重建最简单。旧 buffer 可能还被
+     * 已提交的 bind group 引用，调用方要在 GPU 完成后才能 destroy。
+     */
+    public compile(): GPUBuffer | null {
         if (this.materials.length === 0) {
             throw new Error('MaterialStore: 场景里没有任何材质');
         }
@@ -48,12 +54,15 @@ export class MaterialStore {
         for (let i = 0; i < this.materials.length; i++) {
             data.set(this.materials[i], i * PBR_MAT_FLOATS);
         }
-        this.ssbo = this.device.createBuffer({
+        const previous = this.ssbo ?? null;
+        const ssbo = this.device.createBuffer({
             size: data.byteLength,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             label: 'scene-materials',
         });
-        this.device.queue.writeBuffer(this.ssbo, 0, data as any);
+        this.device.queue.writeBuffer(ssbo, 0, data as any);
+        this.ssbo = ssbo;
+        return previous;
     }
 
     public buffer(): GPUBuffer {

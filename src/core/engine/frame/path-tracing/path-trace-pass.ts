@@ -60,6 +60,8 @@ export class PathTracePass {
     private bindGroups: [GPUBindGroup?, GPUBindGroup?] = [undefined, undefined];
     /** 建这批 bind group 时环境图的版本号；和 Background.version() 不一致就重建。 */
     private bindGroupEnvVersion = -1;
+    /** 建这批 bind group 时场景资源的版本号；Model 追加实例后会变。 */
+    private bindGroupModelVersion = -1;
     /** 每个缓存 bind group 创建时对应的写视图 —— 视图换了说明纹理重建过。 */
     private bindGroupWriteViews: [GPUTextureView?, GPUTextureView?] = [undefined, undefined];
     /** 当前轮内已采样的像素数，[0, pixelCount)。 */
@@ -191,13 +193,20 @@ export class PathTracePass {
         // 相机动了 → 清空累加、游标归零（采样预算保留，成本没有变）
         if (cameraChanged) this.requestReset();
 
-        // bind group 在三种情况下重建：还没建过、累积纹理被 resize 换成了新视图
-        // （两张 ping-pong 是新旧视图各建一次，命中任一即说明整批都过期了），
-        // 或环境图换了（旧纹理已 destroy，绑定必须跟着换）。
+        // bind group 在四种情况下重建：还没建过、累积纹理被 resize 换成了新视图
+        // （两张 ping-pong 是新旧视图各建一次，命中任一即说明整批都过期了）、
+        // 环境图换了（旧纹理已 destroy，绑定必须跟着换），或场景追加了实例
+        // （几何 / 材质 / 实例 buffer 都换成了新的一批）。
         const envChanged = this.bindGroupEnvVersion !== bg.version();
-        if (!this.bindGroups[0] || this.bindGroupWriteViews[0] !== this.accumViews[0] || envChanged) {
-            // 光照变了，旧累积已经没有意义
-            if (envChanged && this.bindGroupEnvVersion !== -1) this.requestReset();
+        const modelChanged = this.bindGroupModelVersion !== this.model.version();
+        if (
+            !this.bindGroups[0] ||
+            this.bindGroupWriteViews[0] !== this.accumViews[0] ||
+            envChanged ||
+            modelChanged
+        ) {
+            // 光照或场景变了，旧累积已经没有意义；首次建 bind group 时还没有样本
+            if ((envChanged || modelChanged) && this.bindGroups[0]) this.requestReset();
             this.rebuildBindGroups();
         }
 
@@ -418,6 +427,7 @@ export class PathTracePass {
         this.bindGroupWriteViews[0] = this.accumViews[0];
         this.bindGroupWriteViews[1] = this.accumViews[1];
         this.bindGroupEnvVersion = this.background.version();
+        this.bindGroupModelVersion = this.model.version();
     }
 
     /** 每次重建只有两张 ping-pong 视图在变，场景资源全部从持有的引用里取。 */

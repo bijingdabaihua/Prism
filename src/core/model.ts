@@ -52,27 +52,28 @@ export interface InstanceSpec {
  */
 export interface ModelHandle {
     /**
-     * 装载场景几何（按 key）。
+     * 追加场景几何（按 key）。
      *
      * Promise 解决时几何 / 材质已经编译完（位移烘成真几何、BVH 建好、
      * buffer 上传完）。机位和环境图不在这条消息里 —— 外部按自己的顺序
      * 调 `camera.set()` / `background.setImage()` / `background.setRotation()`。
      *
-     * 一个 Prism 只装一份几何；换场景就换 Prism。`load` / `loadGltf` /
-     * `loadInstance` 三个入口互斥，选一个调用。
+     * 三个加载入口都是**追加**语义：可以反复调用、一个一个把实例加进同一个
+     * 场景。每次追加都会重建几何 / 材质 buffer，PathTracePass 自动发现版本
+     * 变化并清零累积。
      */
     load(key: SceneKey): Promise<void>;
     /**
-     * 直接编译一个 glTF 文件里的全部 Instance。
+     * 追加一个 glTF 文件里的全部 Instance。
      *
      * `.gltf` 的外链资源需要 URL；Blob 用自包含 `.glb` 或内嵌资源。
-     * 与 `load` 一样，一个 Prism 只能编译一次几何。
+     * 与 `load` 一样，结果是追加到当前场景，不是替换。
      */
     loadGltf(source: GltfSource): Promise<void>;
     /**
-     * 从 glTF 里取一个 Instance，按 `placement` 摆放后编译。
+     * 从 glTF 里取一个 Instance，按 `placement` 摆放后追加到场景。
      *
-     * 与 `load` / `loadGltf` 一样，一个 Prism 只能编译一次几何。
+     * 外部可以连续调用它，把同一个或不同 glTF 里的节点一个一个摆进来。
      */
     loadInstance(instance: InstanceSpec): Promise<void>;
 }

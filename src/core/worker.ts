@@ -10,7 +10,7 @@
  *
  * 运行态全部挂在 `WorkerHost` 一个实例上。消息语义沉到 Engine —— 机位命令和
  * 画面监听直接委托 `engine.camera`，环境图委托 `engine.background`，几何委托
- * `engine.setInstances`；顶层只留引擎本身、串行队列和回执。
+ * `engine.addInstances`；顶层只留引擎本身、串行队列和回执。
  */
 // 纯类型导入：消息协议和门面同文件，编译后这条边会完全擦除。
 import type { CameraCommand, GltfSource, InstanceSpec, WorkerRequest, WorkerResponse } from './prism';
@@ -119,7 +119,7 @@ class WorkerHost {
     }
 
     /**
-     * 装载场景几何：清单查表 → 造 Instance → 交给引擎编译。
+     * 追加场景几何：清单查表 → 造 Instance → 交给引擎编译。
      *
      * 机位和环境图不在这条消息里 —— 外部按自己的顺序调 `camera.set` /
      * `background.setImage`，引擎等三者都到位才出图。
@@ -131,7 +131,7 @@ class WorkerHost {
             if (!build) {
                 throw new Error(`没有场景 "${key}"。可用：${Object.keys(SCENES).join(', ')}`);
             }
-            this.engine.setInstances(await build());
+            this.engine.addInstances(await build());
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));
@@ -139,15 +139,15 @@ class WorkerHost {
     }
 
     /**
-     * 直接编译一个 glTF 文件里的全部 Instance。
+     * 加载一个 glTF 文件里的全部 Instance，追加到当前场景。
      *
-     * 与场景 key 入口一样，最终都落到 `engine.setInstances`；Model 只允许
-     * 编译一次，所以三个入口互斥。
+     * 与场景 key 入口一样，最终都落到 `engine.addInstances`。三个入口都是
+     * 追加语义，外部可以一个一个调用，把多个来源拼进同一个场景。
      */
     private async loadGltf(id: number, source: GltfSource): Promise<void> {
         try {
             if (!this.engine) throw new Error('Prism 还没初始化');
-            this.engine.setInstances(await Instance.buildByGltf(source));
+            this.engine.addInstances(await Instance.buildByGltf(source));
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));
@@ -169,7 +169,7 @@ class WorkerHost {
                 throw new Error(`glTF 里没有第 ${index} 个 Instance（共 ${instances.length} 个）`);
             }
             if (spec.placement) placeInstances([instance], spec.placement);
-            this.engine.setInstances([instance]);
+            this.engine.addInstances([instance]);
             this.reply(id, undefined);
         } catch (err) {
             this.failure(id, err instanceof Error ? err.message : String(err));

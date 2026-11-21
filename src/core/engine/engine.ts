@@ -36,14 +36,15 @@ export class Engine {
     }
 
     /**
-     * 编译场景几何 —— 引擎认识世界的入口之一。GPU 侧不解析任何东西，
-     * 只接收已经准备好的 Instance；材质、位移、BVH 都在 Model.compile 里。
+     * 向场景追加几何 —— 引擎认识世界的入口之一。GPU 侧不解析任何东西，
+     * 只接收已经准备好的 Instance；材质、位移、BVH 都在 Model.add 里。
      *
-     * 机位和环境图各走 `camera.applyView` / `background.setImage`，三者的
-     * 先后由外部决定 —— PathTracePass 等两边都到位才建 bind group。
+     * 可以反复调用：每次把新实例接在已有实例后面整体重编一遍。机位和环境图
+     * 各走 `camera.applyView` / `background.setImage`，三者的先后由外部决定 ——
+     * PathTracePass 等两边都到位才建 bind group。
      */
-    public setInstances(instances: Instance[]): void {
-        this.model.compile(instances);
+    public addInstances(instances: Instance[]): void {
+        this.model.add(instances);
     }
 
     /**

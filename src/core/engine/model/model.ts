@@ -16,12 +16,16 @@ import { MaterialStore } from './material/material-store';
  * 这里的 model 指「场景在 GPU 这边的模型」，不是 `assets/model/` 下那个
  * glTF 资产 —— 后者是 Mesh / Instance 的事。
  *
- * 编译是一条直线，四个阶段都在这个文件里：
+ * 每次 `add()` 都把「当前全部实例」重走一遍编译链，四个阶段都在这个文件里：
  *
  *   布局    mesh 去重，算出每个 mesh 的 BLAS / 顶点 / 三角形起始下标
  *   节点表  TLAS + 各 mesh 的 BLAS 拼成一张扁平 Float32Array，下标重基
  *   打包    顶点 / 三角形 / 实例各自铺成大数组，材质下标换成绝对槽位
  *   上传    建 buffer、写进去 —— 只搬运，不算数据
+ *
+ * 外部一个一个加载实例时，后一次是在前一次的结果上追加；已经提交到 GPU 的
+ * 旧 buffer 不能立刻 destroy，要等 `queue.onSubmittedWorkDone()` 之后再释放。
+ * 这就是这里唯一比「一次编译」多出来的东西。
  *
  * 合成一个文件是因为它们只有这一条调用链：中间的数据结构（SceneOffsets /
  * SceneNodesData）没有第二个消费者，拆成三个模块只是让读者来回跳。
@@ -270,7 +274,7 @@ function uploadSceneNodes(device: GPUDevice, data: Float32Array): GPUBuffer {
     return createBuffer(device, data, 'scene-nodes');
 }
 
-/** 场景的 GPU 形态 —— 编译一次，之后只读；释放见 destroy()。 */
+/** 场景的 GPU 形态 —— 可追加；释放见 destroy()。 */
 export class Model {
     /**
      * TLAS + BLAS 合并节点 buffer：每节点 8 floats。
@@ -285,6 +289,13 @@ export class Model {
     /** 实例表：36 floats/instance（blas_node_offset + transform + inv_transform） */
     public instanceBuffer!: GPUBuffer;
     private compiled = false;
+    /** 每次成功追加加一；PathTracePass 靠它发现场景 buffer 换过。 */
+    private versionCounter = 0;
+    /** 已追加的实例（演化后的）；下一次 add 与它们合并后整体重编。 */
+    private instances: Instance[] = [];
+    /** 换下来的旧 buffer，等 GPU 用完再 destroy。 */
+    private readonly retired = new Set<GPUBuffer>();
+    private destroyed = false;
     private readonly device: GPUDevice;
     private readonly materialStore: MaterialStore;
 
@@ -299,29 +310,58 @@ export class Model {
     }
 
     /**
-     * 编译场景 —— 整个生命里只调一次。
+     * 场景资源版本：每次成功追加加一。
      *
-     * 一个 Engine 只装载一份几何：换场景就换 Prism，所以这里没有增量更新、
-     * 没有脏标记、没有 buffer 复用，一次把整条链走完。`compile()` 之前这四个
-     * buffer 都不存在 —— PathTracePass 等 `ready()` 才建 bind group。
+     * 追加会换掉 nodes / geometry / triangles / instanceBuffer / 材质 SSBO，
+     * 已建的 bind group 随之过期，累积也要清零重来。
      */
-    public compile(insts: Instance[]): void {
-        if (this.compiled) throw new Error('Model: compile 只能调用一次 —— 换场景请换 Prism');
+    public version(): number {
+        return this.versionCounter;
+    }
+
+    /**
+     * 向场景追加一组实例 —— 外部可以一个一个调用。
+     *
+     * 新实例先演化（位移贴图烘成真几何），再和已追加的实例合并，整体重走
+     * 一遍编译链。`add()` 之前这四个 buffer 都不存在 —— PathTracePass 等
+     * `ready()` 才建 bind group。
+     *
+     * 先建新 buffer、再提交材质表、最后才换字段：中途失败时旧场景保持可用；
+     * 换下来的旧 buffer 等已提交的 GPU 工作完成后再 destroy。
+     */
+    public add(insts: Instance[]): void {
+        if (this.destroyed) throw new Error('Model: 已经 destroy');
+        if (insts.length === 0) return;
 
         // 演化：材质上带位移贴图的 instance 在这里换成细分的真几何，
         // 从那以后 GPU 侧既没有位移贴图，也没有「位移」这个概念
-        const instances = insts.map((inst) => inst.evolve());
+        const instances = this.instances.concat(insts.map((inst) => inst.evolve()));
         const offsets = computeOffsets(instances);
         // 材质按对象注册：同一材质被多个 mesh 引用时只占一个槽位
         const matSlots = offsets.meshes.map((mesh) => mesh.materials.map((m) => this.materialStore.register(m)));
-        this.materialStore.compile();
 
+        // 几何先建好；材质表编译失败时把新几何丢掉，旧场景不受影响
         const compiled = this.build(offsets, instances, matSlots);
+        let previousMaterials: GPUBuffer | null;
+        try {
+            previousMaterials = this.materialStore.compile();
+        } catch (err) {
+            destroyCompiled(compiled);
+            throw err;
+        }
+
+        const retired: GPUBuffer[] = [];
+        if (this.compiled) retired.push(this.nodes, this.geometry, this.triangles, this.instanceBuffer);
+        if (previousMaterials) retired.push(previousMaterials);
+
+        this.instances = instances;
         this.nodes = compiled.nodes;
         this.geometry = compiled.geometry;
         this.triangles = compiled.triangles;
         this.instanceBuffer = compiled.instanceBuffer;
         this.compiled = true;
+        this.versionCounter++;
+        this.retire(retired);
     }
 
     /** 材质 SSBO，供 bind group 直接绑定。 */
@@ -335,11 +375,32 @@ export class Model {
     }
 
     public destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
         this.nodes?.destroy();
         this.geometry?.destroy();
         this.triangles?.destroy();
         this.instanceBuffer?.destroy();
+        for (const buf of this.retired) buf.destroy();
+        this.retired.clear();
         this.materialStore.destroy();
+    }
+
+    /**
+     * 旧 buffer 延迟释放。
+     *
+     * 已提交的 command buffer 里可能还绑着它们；`onSubmittedWorkDone()` 覆盖
+     * 调用时刻之前提交的全部工作。回调里再查一次集合：如果 `destroy()` 已经
+     * 先跑过，这里就不重复 destroy。
+     */
+    private retire(buffers: GPUBuffer[]): void {
+        if (buffers.length === 0) return;
+        for (const buf of buffers) this.retired.add(buf);
+        void this.device.queue.onSubmittedWorkDone().then(() => {
+            for (const buf of buffers) {
+                if (this.retired.delete(buf)) buf.destroy();
+            }
+        });
     }
 
     /** 构建一整套新 buffer；失败时销毁已建的部分，不留下泄漏。 */
@@ -371,4 +432,12 @@ interface CompiledBuffers {
     geometry: GPUBuffer;
     triangles: GPUBuffer;
     instanceBuffer: GPUBuffer;
+}
+
+/** 丢弃一套还没换上去的编译产物。 */
+function destroyCompiled(buffers: CompiledBuffers): void {
+    buffers.nodes.destroy();
+    buffers.geometry.destroy();
+    buffers.triangles.destroy();
+    buffers.instanceBuffer.destroy();
 }
